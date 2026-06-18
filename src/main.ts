@@ -17,15 +17,26 @@ async function boot() {
   const timeout = new Promise((res) => setTimeout(res, 2000));
   await Promise.race([fonts, timeout]).catch(() => {});
 
+  // Use the visual viewport (the truly visible area) so touch coordinates
+  // map accurately even as the mobile address bar shows / hides.
+  const viewport = () => {
+    const vv = window.visualViewport;
+    return {
+      w: Math.round(vv ? vv.width : window.innerWidth),
+      h: Math.round(vv ? vv.height : window.innerHeight),
+    };
+  };
+
+  const vp = viewport();
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: "game",
-    backgroundColor: "#bfe6ad",
+    backgroundColor: "#72ad3e",
     scale: {
       // Render the buffer at device pixels (crisp), display at CSS size.
       mode: Phaser.Scale.NONE,
-      width: window.innerWidth * DPR,
-      height: window.innerHeight * DPR,
+      width: vp.w * DPR,
+      height: vp.h * DPR,
       zoom: 1 / DPR,
     },
     render: { antialias: true, roundPixels: false },
@@ -33,10 +44,17 @@ async function boot() {
   });
 
   const resize = () => {
-    game.scale.resize(window.innerWidth * DPR, window.innerHeight * DPR);
+    const v = viewport();
+    game.scale.resize(v.w * DPR, v.h * DPR);
     game.scale.setZoom(1 / DPR);
+    game.scale.refresh(); // recompute canvas bounds for accurate input
   };
   window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", () => setTimeout(resize, 80));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", resize);
+    window.visualViewport.addEventListener("scroll", () => game.scale.refresh());
+  }
 
   if (import.meta.env.DEV) {
     (window as any).__game = game;

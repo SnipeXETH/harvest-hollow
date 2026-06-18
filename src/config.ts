@@ -4,29 +4,33 @@ export const CONFIG = {
   tileWidth: 110,
   tileHeight: 55,
 
-  // Farm grid.
-  startGridSize: 6,
-  maxGridSize: 10,
+  // Land is bought as square chunks ("plots") of CHUNK×CHUNK tiles.
+  chunkSize: 4,
+  // World extent in chunks, from -worldRadius..worldRadius on each axis.
+  worldRadiusChunks: 6,
 
   // Starting wallet.
-  startCoins: 50,
+  startCoins: 80,
   startGems: 5,
 
-  // Coins to hoe one grass tile into a soil plot (0 = free).
+  // Coins to hoe one grass tile into soil (0 = free).
   tillCost: 0,
 
-  // Cost (in coins) to expand the farm by one ring; scales with size.
-  expansionBaseCost: 250,
+  // Buying the next land plot; scales with how many you already own.
+  plotBaseCost: 120,
+  plotCostGrowth: 1.6,
 
-  // Farmer movement: ms it takes to cross one tile-step (scaled by distance).
-  walkMsPerTile: 150,
-  walkMinMs: 220,
-  walkMaxMs: 900,
+  // Camera (gameplay zoom multiplies the device-pixel-ratio base zoom).
+  zoomMin: 0.45,
+  zoomMax: 1.6,
+  zoomStart: 0.8,
+
+  // Farmer movement.
+  walkSpeed: 150, // world px per second
+  walkMinMs: 180,
 
   saveKey: "harvest-hollow-save-v1",
-  saveVersion: 2,
+  saveVersion: 3,
 
-  // Dev: when true, crops grow at this multiplier (1 = real time).
-  // Toggled in-game via the ⏩ button.
   defaultTimeScale: 1,
 };

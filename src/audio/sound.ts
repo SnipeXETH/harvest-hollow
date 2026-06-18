@@ -6,7 +6,6 @@ class SoundEngine {
   private ctx?: AudioContext;
   private master?: GainNode;
   private sfx?: GainNode;
-  private music?: GainNode;
   private muted = false;
 
   init() {
@@ -29,10 +28,6 @@ class SoundEngine {
     this.sfx = this.ctx.createGain();
     this.sfx.gain.value = 0.6;
     this.sfx.connect(this.master);
-    this.music = this.ctx.createGain();
-    this.music.gain.value = 0;
-    this.music.connect(this.master);
-    this.startMusic();
   }
 
   setMuted(m: boolean) {
@@ -116,34 +111,6 @@ class SoundEngine {
   levelUp() {
     const t = this.now();
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => this.tone(f, t + i * 0.09, 0.3, "triangle", 0.2));
-  }
-
-  // ---- Ambient music bed --------------------------------------------
-  private startMusic() {
-    if (!this.ctx || !this.music) return;
-    this.music.gain.setTargetAtTime(0.045, this.ctx.currentTime, 2);
-    const scale = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25]; // C major pentatonic
-    const playNote = () => {
-      if (!this.ctx || !this.music) return;
-      if (Math.random() < 0.25) return; // occasional rest for a relaxed feel
-      const t = this.ctx.currentTime;
-      const base = scale[Math.floor(Math.random() * scale.length)];
-      [base, base / 2].forEach((f, k) => {
-        const o = this.ctx!.createOscillator();
-        o.type = "sine";
-        o.frequency.value = f;
-        const g = this.ctx!.createGain();
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(k === 0 ? 0.6 : 0.35, t + 0.9);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
-        o.connect(g);
-        g.connect(this.music!);
-        o.start(t);
-        o.stop(t + 2.7);
-      });
-    };
-    window.setInterval(playNote, 2200);
-    playNote();
   }
 }
 

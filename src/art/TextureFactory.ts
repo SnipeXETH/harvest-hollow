@@ -1,11 +1,22 @@
 import Phaser from "phaser";
 import { CONFIG } from "../config";
+import { CROPS } from "../data/crops";
 import { DPR } from "../scenes/BaseScene";
 
 const W = CONFIG.tileWidth;
 const H = CONFIG.tileHeight;
 // Supersample textures so they stay sharp under the device-pixel camera zoom.
 export const SS = Math.min(Math.max(Math.ceil(DPR), 1), 3);
+
+// A filled crop tile bakes several crop icons into one texture so a planted
+// tile looks densely packed. Plants stick up above the tile diamond.
+const CTOP = 38; // plant height above the diamond, in design px
+export const CROP_TEX = {
+  tw: W,
+  th: H + CTOP,
+  // Origin at the diamond centre so the image sits on a tile and scales from it.
+  centerOriginY: (CTOP + H / 2) / (H + CTOP),
+};
 
 function diamond(g: Phaser.GameObjects.Graphics, s: number, fill: number, fillAlpha = 1, line?: { c: number; a: number; w: number }) {
   const w = W * s;
@@ -48,6 +59,9 @@ export function generateTextures(scene: Phaser.Scene): void {
   drawFarmer(scene, "farmer-0", s, 0);
   drawFarmer(scene, "farmer-1", s, 1);
 
+  // Dense crop clusters (one texture per crop + a sprout cluster).
+  bakeCrops(scene, s);
+
   // Soft round particle.
   {
     const g = scene.add.graphics();
@@ -56,6 +70,34 @@ export function generateTextures(scene: Phaser.Scene): void {
     g.generateTexture("spark", 16 * s, 16 * s);
     g.destroy();
   }
+}
+
+function bakeCrops(scene: Phaser.Scene, s: number) {
+  const tw = CROP_TEX.tw;
+  const th = CROP_TEX.th;
+  const ce = 28; // per-icon size (design px)
+  const cxC = (tw / 2) * s; // diamond centre x
+  const cyC = (CTOP + H / 2) * s; // diamond centre y
+  // Base points (design px, relative to diamond centre) filling the diamond.
+  const pts: [number, number][] = [
+    [-26, -1], [-9, -6], [9, -6], [26, -1],
+    [-17, 7], [0, 2], [17, 7],
+    [0, 15],
+  ];
+  const order = [...pts].sort((a, b) => a[1] - b[1]); // back (higher) first
+
+  const cluster = (key: string, emoji: string) => {
+    const rt = scene.add.renderTexture(0, 0, tw * s, th * s).setVisible(false);
+    for (const [dx, dy] of order) {
+      const t = scene.add.text(0, 0, emoji, { fontSize: `${ce * s}px` }).setOrigin(0.5, 1);
+      rt.draw(t, cxC + dx * s, cyC + dy * s);
+      t.destroy();
+    }
+    rt.saveTexture(key);
+  };
+
+  for (const c of CROPS) cluster(`crop-${c.id}`, c.emoji);
+  cluster("sprout-cluster", "🌱");
 }
 
 function drawFarmer(scene: Phaser.Scene, key: string, s: number, frame: number) {

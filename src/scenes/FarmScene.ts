@@ -3,7 +3,7 @@ import { CONFIG } from "../config";
 import { GameState } from "../state/GameState";
 import { CROP_BY_ID } from "../data/crops";
 import { BaseScene, DPR } from "./BaseScene";
-import { SS } from "../art/TextureFactory";
+import { SS, CROP_TEX } from "../art/TextureFactory";
 import { UI } from "../ui/ui";
 import { Sound } from "../audio/sound";
 
@@ -18,7 +18,7 @@ export type Mode = "idle" | "hoe" | "plant";
 
 interface SoilView {
   soil: Phaser.GameObjects.Image;
-  crop: Phaser.GameObjects.Text;
+  crop: Phaser.GameObjects.Image;
   bar: Phaser.GameObjects.Graphics;
   readyTween?: Phaser.Tweens.Tween;
 }
@@ -262,7 +262,12 @@ export class FarmScene extends BaseScene {
     const p = this.tilePos(col, row);
     const soil = this.add.image(p.x, p.y, "tile-soil").setOrigin(0.5, 0).setScale(TILE_SCALE).setDepth(col + row + 0.1);
     const c = this.tileCenter(col, row);
-    const crop = this.tx(c.x, c.y + 6, "", { fontFamily: "Fredoka", fontSize: "40px" }).setOrigin(0.5, 0.85).setDepth(col + row + 0.3);
+    const crop = this.add
+      .image(c.x, c.y, "sprout-cluster")
+      .setOrigin(0.5, CROP_TEX.centerOriginY)
+      .setScale(TILE_SCALE)
+      .setDepth(col + row + 0.3)
+      .setVisible(false);
     const bar = this.add.graphics().setDepth(col + row + 0.31);
     return { soil, crop, bar };
   }
@@ -601,7 +606,14 @@ export class FarmScene extends BaseScene {
   private popCrop(col: number, row: number) {
     const v = this.soil.get(this.key(col, row));
     if (!v) return;
-    this.tweens.add({ targets: v.crop, scaleX: { from: 0.2, to: 1 }, scaleY: { from: 0.2, to: 1 }, duration: 260, ease: "Back.out" });
+    v.crop.setVisible(true).setTexture("sprout-cluster");
+    this.tweens.add({
+      targets: v.crop,
+      scaleX: { from: TILE_SCALE * 0.15, to: TILE_SCALE * 0.6 },
+      scaleY: { from: TILE_SCALE * 0.15, to: TILE_SCALE * 0.6 },
+      duration: 260,
+      ease: "Back.out",
+    });
   }
 
   // ---- Effects -------------------------------------------------------
@@ -664,28 +676,38 @@ export class FarmScene extends BaseScene {
       const [col, row] = key.split(",").map(Number);
       const plot = GameState.getPlot(col, row);
       if (!plot) {
-        if (v.crop.text) { v.crop.setText(""); v.bar.clear(); v.readyTween?.stop(); v.readyTween = undefined; }
+        if (v.crop.visible) {
+          v.crop.setVisible(false);
+          v.bar.clear();
+          v.readyTween?.stop();
+          v.readyTween = undefined;
+        }
         continue;
       }
       const crop = CROP_BY_ID[plot.cropId];
       if (!crop) continue;
       const ratio = GameState.growthRatio(plot);
-      const glyph = ratio < 0.34 ? "🌱" : crop.emoji;
-      if (v.crop.text !== glyph) v.crop.setText(glyph);
-      const center = this.tileCenter(col, row);
+      const wantTex = ratio < 0.3 ? "sprout-cluster" : `crop-${crop.id}`;
+      if (v.crop.texture.key !== wantTex) v.crop.setTexture(wantTex);
+      v.crop.setVisible(true);
 
       if (ratio >= 1) {
         v.bar.clear();
         if (!v.readyTween) {
-          v.crop.setScale(1);
+          v.crop.setScale(TILE_SCALE);
           v.readyTween = this.tweens.add({
-            targets: v.crop, y: { from: center.y + 6, to: center.y - 4 },
-            scaleX: { from: 1, to: 1.1 }, scaleY: { from: 1, to: 1.1 },
-            duration: 520, yoyo: true, repeat: -1, ease: "Sine.inOut",
+            targets: v.crop,
+            scaleX: { from: TILE_SCALE, to: TILE_SCALE * 1.05 },
+            scaleY: { from: TILE_SCALE, to: TILE_SCALE * 1.05 },
+            duration: 560,
+            yoyo: true,
+            repeat: -1,
+            ease: "Sine.inOut",
           });
         }
       } else if (!this.tweens.isTweening(v.crop)) {
-        v.crop.setScale(0.45 + ratio * 0.5).setY(center.y + 6);
+        const grow = ratio < 0.3 ? 0.5 + ratio : 0.64 + 0.36 * ratio;
+        v.crop.setScale(TILE_SCALE * grow);
         this.drawBar(v, col, row, ratio);
       }
     }

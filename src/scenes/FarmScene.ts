@@ -4,7 +4,7 @@ import { GameState } from "../state/GameState";
 import { CROP_BY_ID } from "../data/crops";
 import { BaseScene, DPR } from "./BaseScene";
 import { SS } from "../art/TextureFactory";
-import type { UIScene } from "./UIScene";
+import { UI } from "../ui/ui";
 
 const W = CONFIG.tileWidth;
 const H = CONFIG.tileHeight;
@@ -32,6 +32,7 @@ interface Task {
 export class FarmScene extends BaseScene {
   private ground: Phaser.GameObjects.GameObject[] = [];
   private soil = new Map<string, SoilView>();
+  private targets: Phaser.GameObjects.Image[] = [];
   private fences!: Phaser.GameObjects.Graphics;
 
   private farmer!: Phaser.GameObjects.Image;
@@ -72,11 +73,19 @@ export class FarmScene extends BaseScene {
     this.applyCamera();
     this.cameras.main.centerOn(c.x, c.y);
 
-    GameState.on("land", () => this.syncSoil(), this);
-    GameState.on("owned", () => { this.buildWorld(); this.syncSoil(); }, this);
+    UI.bindFarm(this);
+
+    GameState.on("land", () => { this.syncSoil(); this.refreshTargets(); }, this);
+    GameState.on("owned", () => { this.buildWorld(); this.syncSoil(); this.refreshTargets(); }, this);
     this.scale.on("resize", () => this.onResize(), this);
 
     this.input.addPointer(1); // allow 2 simultaneous pointers (pinch)
+
+    const loader = document.getElementById("loading");
+    if (loader) {
+      loader.style.opacity = "0";
+      setTimeout(() => loader.remove(), 500);
+    }
 
     this.time.delayedCall(400, () => this.reportOfflineProgress());
   }
@@ -87,10 +96,6 @@ export class FarmScene extends BaseScene {
     this.selectedCropId = cropId;
     this.events.emit("mode", mode, cropId);
     this.refreshTargets();
-  }
-
-  private ui() {
-    return this.scene.get("UIScene") as UIScene;
   }
 
   // ---- Iso coordinates ----------------------------------------------
@@ -272,7 +277,7 @@ export class FarmScene extends BaseScene {
   }
 
   private handleCameraInput() {
-    if (this.ui().isModalOpen()) {
+    if (UI.isModalOpen()) {
       this.dragging = false;
       this.pinching = false;
       return;
@@ -329,16 +334,17 @@ export class FarmScene extends BaseScene {
   }
 
   private onTap(pointer: Phaser.Input.Pointer) {
-    // Ignore taps that land on the HUD / toolbar / an open menu.
-    if (this.ui().blocksWorldInput(pointer.x / DPR, pointer.y / DPR)) return;
+    // The HTML toolbar/HUD absorb their own taps; only block while a menu is open.
+    if (UI.isModalOpen()) return;
 
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    this.ripple(wp.x, wp.y);
     const { col, row } = this.pickTile(wp.x, wp.y);
     const { cx, cy } = GameState.chunkOf(col, row);
 
     // Buyable plot?
     if (GameState.buyableChunks().some((c) => c.cx === cx && c.cy === cy)) {
-      this.ui().promptBuy(cx, cy);
+      UI.promptBuy(cx, cy);
       return;
     }
 
@@ -347,14 +353,14 @@ export class FarmScene extends BaseScene {
 
     if (this.mode === "hoe") {
       if (owned && state === "grass") this.enqueue({ col, row, action: "till" }, true);
-      else this.ui().toast(owned ? "Already worked here" : "You don't own this land");
+      else UI.toast(owned ? "Already worked here" : "You don't own this land");
       return;
     }
     if (this.mode === "plant") {
       if (owned && state === "soil") this.enqueue({ col, row, action: "plant", cropId: this.selectedCropId }, true);
-      else if (owned && state === "grass") this.ui().toast("🪓 Hoe this tile first");
-      else if (owned) this.ui().toast("Something's already growing");
-      else this.ui().toast("You don't own this land");
+      else if (owned && state === "grass") UI.toast("🪓 Hoe this tile first");
+      else if (owned) UI.toast("Something's already growing");
+      else UI.toast("You don't own this land");
       return;
     }
 
@@ -364,7 +370,7 @@ export class FarmScene extends BaseScene {
       this.enqueue({ col, row, action: "harvest" }, true);
     } else {
       this.replaceWalk(col, row);
-      if (plot) this.ui().toast(`Growing — ${formatTime(GameState.secondsLeft(plot))} left`);
+      if (plot) UI.toast(`Growing — ${formatTime(GameState.secondsLeft(plot))} left`);
     }
   }
 
@@ -458,7 +464,7 @@ export class FarmScene extends BaseScene {
       if (task.cropId && GameState.plant(task.col, task.row, task.cropId)) {
         this.dust(s.x, s.y, 0x6fbf3a);
         this.popCrop(task.col, task.row);
-      } else this.ui().toast("Can't plant there");
+      } else UI.toast("Can't plant there");
     } else if (task.action === "harvest") {
       const plot = GameState.getPlot(task.col, task.row);
       const crop = plot ? CROP_BY_ID[plot.cropId] : undefined;
@@ -496,20 +502,38 @@ export class FarmScene extends BaseScene {
   }
 
   // ---- Targets / crop animation -------------------------------------
+  /** Highlight the tiles the current tool can act on. */
   private refreshTargets() {
-    // (visual target pulse computed live in animateTargets)
+    this.targets.forEach((t) => t.destroy());
+    this.targets = [];
+    if (this.mode === "idle") return;
+    for (const ownedKey of Object.keys(GameState.data.owned)) {
+      const [cx, cy] = ownedKey.split(",").map(Number);
+      for (let r = 0; r < CS; r++) {
+        for (let c = 0; c < CS; c++) {
+          const col = cx * CS + c;
+          const row = cy * CS + r;
+          const st = GameState.tileState(col, row);
+          const valid = this.mode === "hoe" ? st === "grass" : st === "soil";
+          if (!valid) continue;
+          const p = this.tilePos(col, row);
+          const img = this.add.image(p.x, p.y, "tile-target").setOrigin(0.5, 0).setScale(TILE_SCALE).setDepth(col + row + 0.4);
+          this.targets.push(img);
+        }
+      }
+    }
   }
 
   private animateTargets() {
-    // Pulse ready crops in idle mode for harvest guidance.
-    if (this.mode !== "idle") return;
-    const pulse = 0.85 + 0.15 * Math.sin(this.time.now / 250);
-    for (const [key, v] of this.soil) {
-      const [col, row] = key.split(",").map(Number);
-      const plot = GameState.getPlot(col, row);
-      if (plot && GameState.isReady(plot)) v.crop.setAlpha(1);
-      void pulse;
-    }
+    if (!this.targets.length) return;
+    const a = 0.3 + 0.35 * (0.5 + 0.5 * Math.sin(this.time.now / 280));
+    for (const t of this.targets) t.setAlpha(a);
+  }
+
+  /** Quick expanding ring at a tapped world point. */
+  private ripple(x: number, y: number) {
+    const c = this.add.circle(x, y, 10, 0xffffff, 0).setStrokeStyle(3, 0xffffff, 0.85).setDepth(100004);
+    this.tweens.add({ targets: c, scale: 3, alpha: 0, duration: 360, ease: "Cubic.out", onComplete: () => c.destroy() });
   }
 
   private animateCrops() {
@@ -588,7 +612,7 @@ export class FarmScene extends BaseScene {
     for (const k of Object.keys(GameState.data.plots)) {
       if (GameState.isReady(GameState.data.plots[k])) ready++;
     }
-    if (ready > 0) this.ui().toast(`🌾 ${ready} crop${ready > 1 ? "s" : ""} ready to harvest!`);
+    if (ready > 0) UI.toast(`🌾 ${ready} crop${ready > 1 ? "s" : ""} ready to harvest!`);
   }
 }
 

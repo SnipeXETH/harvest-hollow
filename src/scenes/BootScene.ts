@@ -11,6 +11,5 @@ export class BootScene extends Phaser.Scene {
     generateTextures(this);
     GameState.load();
     this.scene.start("FarmScene");
-    this.scene.start("UIScene");
   }
 }

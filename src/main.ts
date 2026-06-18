@@ -1,9 +1,9 @@
 import Phaser from "phaser";
 import { BootScene } from "./scenes/BootScene";
 import { FarmScene } from "./scenes/FarmScene";
-import { UIScene } from "./scenes/UIScene";
 import { DPR } from "./scenes/BaseScene";
 import { GameState } from "./state/GameState";
+import { UI } from "./ui/ui";
 
 async function boot() {
   // Wait for the game font so the first frame isn't drawn in a fallback,
@@ -40,8 +40,10 @@ async function boot() {
       zoom: 1 / DPR,
     },
     render: { antialias: true, roundPixels: false },
-    scene: [BootScene, FarmScene, UIScene],
+    scene: [BootScene, FarmScene],
   });
+
+  UI.init();
 
   const resize = () => {
     const v = viewport();

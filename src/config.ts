@@ -42,7 +42,7 @@ export const CONFIG = {
   harvestSeconds: 0.7,
 
   saveKey: "harvest-hollow-save-v1",
-  saveVersion: 3,
+  saveVersion: 4,
 
   defaultTimeScale: 1,
 };

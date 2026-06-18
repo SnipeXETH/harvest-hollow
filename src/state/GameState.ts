@@ -1,10 +1,12 @@
 import Phaser from "phaser";
 import { CONFIG } from "../config";
-import type { SaveData, PlotState } from "../types";
-import { CROP_BY_ID } from "../data/crops";
+import type { SaveData, PlotState, QuestInstance } from "../types";
+import { CROPS, CROP_BY_ID } from "../data/crops";
 import { levelForXp } from "../data/levels";
+import { genQuest, QUEST_BY_ID } from "../data/quests";
+import type { QuestType } from "../data/quests";
 
-type Events = "wallet" | "xp" | "levelup" | "land" | "owned" | "timescale";
+type Events = "wallet" | "xp" | "levelup" | "land" | "owned" | "timescale" | "quests" | "daily";
 
 const CS = CONFIG.chunkSize;
 
@@ -24,6 +26,9 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
           parsed.plots ??= {};
           parsed.decorations ??= {};
           parsed.farmer ??= { col: CS / 2, row: CS / 2 };
+          parsed.quests ??= [];
+          parsed.daily ??= { last: "", streak: 0 };
+          while (parsed.quests.length < 3) parsed.quests.push(genQuest(levelForXp(parsed.xp), parsed.quests.map((q) => q.defId)));
           this.data = parsed;
           return;
         }
@@ -55,8 +60,16 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
       plots: {},
       decorations: {},
       farmer: { col: (minC + maxC) / 2, row: (minR + maxR) / 2 },
+      quests: this.makeStartingQuests(),
+      daily: { last: "", streak: 0 },
       lastSeen: Date.now(),
     };
+  }
+
+  private makeStartingQuests(): QuestInstance[] {
+    const quests: QuestInstance[] = [];
+    for (let i = 0; i < 3; i++) quests.push(genQuest(1, quests.map((q) => q.defId)));
+    return quests;
   }
 
   save(): void {
@@ -111,8 +124,20 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
     this.data.xp += n;
     const after = this.level;
     this.emit("xp");
-    if (after > before) this.emit("levelup", after);
+    if (after > before) {
+      for (let lvl = before + 1; lvl <= after; lvl++) this.onLevelUp(lvl);
+      this.trackQuestLevel(after);
+    }
     this.save();
+  }
+
+  private onLevelUp(lvl: number) {
+    const reward = { coins: lvl * 40, gems: lvl % 5 === 0 ? 1 : 0 };
+    this.data.coins += reward.coins;
+    this.data.gems += reward.gems;
+    const unlocked = CROPS.filter((c) => c.unlockLevel === lvl).map((c) => ({ name: c.name, emoji: c.emoji }));
+    this.emit("wallet");
+    this.emit("levelup", lvl, reward, unlocked);
   }
 
   // --- Keys / chunks --------------------------------------------------
@@ -174,6 +199,7 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
     if (!this.spendCoins(this.plotCost())) return false;
     this.data.owned[this.chunkKey(cx, cy)] = true;
     this.emit("owned");
+    this.trackQuest("buy");
     this.save();
     return true;
   }
@@ -218,6 +244,7 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
     if (!this.spendCoins(CONFIG.tillCost)) return false;
     this.data.tilled[this.key(col, row)] = true;
     this.emit("land");
+    this.trackQuest("till");
     this.save();
     return true;
   }
@@ -230,6 +257,7 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
     if (!this.spendCoins(crop.seedCost)) return false;
     this.data.plots[this.key(col, row)] = { cropId, plantedAt: Date.now() };
     this.emit("land");
+    this.trackQuest("plant");
     this.save();
     return true;
   }
@@ -259,6 +287,9 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
     if (crop) {
       this.addCoins(crop.sellPrice);
       this.addXp(crop.xp);
+      this.trackQuest("harvest");
+      this.trackQuest("harvestCrop", 1, crop.id);
+      this.trackQuest("earn", crop.sellPrice);
     }
     this.save();
     return true;
@@ -268,6 +299,85 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
   setFarmer(col: number, row: number) {
     this.data.farmer = { col, row };
     // not saved every step (caller saves on settle)
+  }
+
+  // --- Quests ---------------------------------------------------------
+  private trackQuest(type: QuestType, amount = 1, cropId?: string) {
+    let changed = false;
+    for (const q of this.data.quests) {
+      const def = QUEST_BY_ID[q.defId];
+      if (!def || def.type !== type) continue;
+      if (type === "harvestCrop" && def.cropId !== cropId) continue;
+      if (q.progress >= q.target) continue;
+      q.progress = Math.min(q.target, q.progress + amount);
+      changed = true;
+    }
+    if (changed) {
+      this.emit("quests");
+      this.save();
+    }
+  }
+
+  private trackQuestLevel(level: number) {
+    let changed = false;
+    for (const q of this.data.quests) {
+      const def = QUEST_BY_ID[q.defId];
+      if (!def || def.type !== "level" || q.progress >= q.target) continue;
+      q.progress = Math.min(q.target, level);
+      changed = true;
+    }
+    if (changed) this.emit("quests");
+  }
+
+  questDone(q: { progress: number; target: number }) {
+    return q.progress >= q.target;
+  }
+
+  /** Number of quests ready to claim (for the notification badge). */
+  questsClaimable() {
+    return this.data.quests.filter((q) => this.questDone(q)).length;
+  }
+
+  claimQuest(index: number): boolean {
+    const q = this.data.quests[index];
+    if (!q || !this.questDone(q)) return false;
+    const def = QUEST_BY_ID[q.defId];
+    if (!def) return false;
+    if (def.reward.coins) this.data.coins += def.reward.coins;
+    if (def.reward.gems) this.data.gems += def.reward.gems;
+    const exclude = this.data.quests.map((x) => x.defId);
+    this.data.quests[index] = genQuest(this.level, exclude);
+    if (def.reward.xp) this.addXp(def.reward.xp);
+    this.emit("wallet");
+    this.emit("quests");
+    this.save();
+    return true;
+  }
+
+  // --- Daily reward ---------------------------------------------------
+  private dayKey(d: Date) {
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  }
+  dailyAvailable() {
+    return this.data.daily.last !== this.dayKey(new Date());
+  }
+  /** Returns the reward granted, or null if already claimed today. */
+  claimDaily(): { coins: number; gems: number; day: number; streak: number } | null {
+    if (!this.dailyAvailable()) return null;
+    const today = this.dayKey(new Date());
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    const streak = this.data.daily.last === this.dayKey(y) ? this.data.daily.streak + 1 : 1;
+    const day = ((streak - 1) % 7) + 1;
+    const coins = 40 + day * 30;
+    const gems = day === 7 ? 3 : 0;
+    this.data.coins += coins;
+    this.data.gems += gems;
+    this.data.daily = { last: today, streak };
+    this.emit("wallet");
+    this.emit("daily");
+    this.save();
+    return { coins, gems, day, streak };
   }
 
   setTimeScale(scale: number) {

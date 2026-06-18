@@ -3,6 +3,7 @@ import { CROPS, CROP_BY_ID } from "../data/crops";
 import { levelProgress } from "../data/levels";
 import { CONFIG } from "../config";
 import { Sound } from "../audio/sound";
+import { QUEST_BY_ID, questText } from "../data/quests";
 import type { FarmScene, Mode } from "../scenes/FarmScene";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
@@ -46,6 +47,10 @@ class UIController {
         <span class="spacer"></span>
         <div class="badge" id="ui-badge"><div class="inner" id="ui-level">1</div></div>
       </div>
+      <div id="chips-left">
+        <div class="chip" id="ui-daily">🎁<span class="dot" id="ui-daily-dot"></span></div>
+        <div class="chip" id="ui-quests">📋<span class="dot" id="ui-quests-dot"></span></div>
+      </div>
       <div id="chips">
         <div class="chip" id="ui-mute">🔊</div>
         <div class="chip" id="ui-speed">1×</div>
@@ -55,9 +60,11 @@ class UIController {
       <div id="toolbar">
         <button class="tool" id="ui-hoe"><span class="ico">🪓</span><span class="lbl">Hoe</span></button>
         <button class="tool" id="ui-seeds"><span class="ico">🌱</span><span class="lbl">Seeds</span></button>
+        <button class="tool" id="ui-harvest"><span class="ico">🧺</span><span class="lbl">Harvest</span></button>
         <button class="tool" id="ui-shop"><span class="ico">🛒</span><span class="lbl">Shop</span></button>
       </div>
       <div id="backdrop"><div class="sheet" id="ui-sheet"></div></div>
+      <div id="celebrate"></div>
       <div id="toast"></div>
     `;
     document.body.appendChild(this.root);
@@ -91,14 +98,19 @@ class UIController {
       muteChip.classList.toggle("on", m);
     });
     this.tap(this.byId("ui-hint-x"), () => this.farm?.setMode("idle"));
+    this.tap(this.byId("ui-harvest"), () => this.farm?.harvestAll());
+    this.tap(this.byId("ui-daily"), () => this.openDaily());
+    this.tap(this.byId("ui-quests"), () => this.openQuests());
     this.tap(this.backdrop, (e) => {
       if (e.target === this.backdrop) this.closeSheet();
     });
 
     GameState.on("wallet", () => this.refresh(), this);
     GameState.on("xp", () => this.refresh(), this);
-    GameState.on("owned", () => this.refresh(), this);
-    GameState.on("levelup", (lvl: number) => { this.toast(`⭐ Level ${lvl}! New seeds may be unlocked`); Sound.levelUp(); }, this);
+    GameState.on("owned", () => { this.refresh(); this.updateBadges(); }, this);
+    GameState.on("quests", () => this.updateBadges(), this);
+    GameState.on("daily", () => this.updateBadges(), this);
+    GameState.on("levelup", (lvl: number, reward: any, unlocked: any[]) => this.onLevelUp(lvl, reward, unlocked), this);
 
     this.refresh();
   }
@@ -108,6 +120,15 @@ class UIController {
     farm.events.on("mode", (m: Mode, cropId?: string) => this.onMode(m, cropId));
     this.onMode(farm.mode, farm.selectedCropId);
     this.refresh(); // GameState is loaded by now
+    this.updateBadges();
+    if (GameState.dailyAvailable()) setTimeout(() => this.openDaily(), 700);
+  }
+
+  private updateBadges() {
+    const dd = this.byId("ui-daily-dot");
+    dd.style.display = GameState.dailyAvailable() ? "block" : "none";
+    const qd = this.byId("ui-quests-dot");
+    qd.style.display = GameState.questsClaimable() > 0 ? "block" : "none";
   }
 
   private byId(id: string) {
@@ -218,6 +239,96 @@ class UIController {
         }
       });
     }
+  }
+
+  openQuests() {
+    const rewardStr = (rw: { coins?: number; gems?: number; xp?: number }) =>
+      [rw.coins ? `🪙${rw.coins}` : "", rw.gems ? `💎${rw.gems}` : "", rw.xp ? `✨${rw.xp}` : ""].filter(Boolean).join("  ");
+    const rows = GameState.data.quests
+      .map((q, i) => {
+        const def = QUEST_BY_ID[q.defId];
+        if (!def) return "";
+        const done = GameState.questDone(q);
+        const pct = Math.min(100, Math.round((q.progress / q.target) * 100));
+        const right = done
+          ? `<button class="pick" data-q="${i}">Claim</button>`
+          : `<span class="qreward">${rewardStr(def.reward)}</span>`;
+        return `<div class="quest ${done ? "done" : ""}">
+          <span class="emoji">${def.icon}</span>
+          <span class="meta">
+            <div class="name">${questText(q)}</div>
+            <div class="qbar"><div class="qfill" style="width:${pct}%"></div></div>
+            <div class="sub">${q.progress} / ${q.target}</div>
+          </span>${right}
+        </div>`;
+      })
+      .join("");
+    this.openSheet(`<h2>Goals</h2>${rows}`);
+    this.sheet.querySelectorAll<HTMLElement>(".pick").forEach((btn) =>
+      this.tap(btn, () => {
+        const i = parseInt(btn.dataset.q || "-1", 10);
+        if (GameState.claimQuest(i)) {
+          Sound.buy();
+          this.updateBadges();
+          this.openQuests();
+        }
+      })
+    );
+  }
+
+  openDaily() {
+    const avail = GameState.dailyAvailable();
+    let day = 1;
+    if (avail) {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      const yKey = `${y.getFullYear()}-${y.getMonth() + 1}-${y.getDate()}`;
+      const sAfter = GameState.data.daily.last === yKey ? GameState.data.daily.streak + 1 : 1;
+      day = ((sAfter - 1) % 7) + 1;
+    }
+    const coins = 40 + day * 30;
+    const gems = day === 7 ? 3 : 0;
+    const strip = [1, 2, 3, 4, 5, 6, 7]
+      .map((d) => `<div class="daybox ${avail && d === day ? "cur" : ""}">D${d}<br>${d === 7 ? "💎" : "🪙"}</div>`)
+      .join("");
+    const rewardStr = `🪙${coins}${gems ? `  💎${gems}` : ""}`;
+    this.openSheet(`
+      <h2>Daily Reward</h2>
+      <p>Come back every day — the streak pays off!</p>
+      <div class="daystrip">${strip}</div>
+      <button class="bigbtn" id="ui-claim-daily" ${avail ? "" : "disabled"}>
+        ${avail ? `Claim ${rewardStr}` : "Already claimed — see you tomorrow!"}
+      </button>
+    `);
+    if (avail) {
+      this.tap(this.byId("ui-claim-daily"), () => {
+        const r = GameState.claimDaily();
+        if (r) {
+          Sound.buy();
+          this.closeSheet();
+          this.celebrate("🎁 Daily Reward!", `+${r.coins}🪙${r.gems ? `  +${r.gems}💎` : ""}  ·  Day ${r.day}`);
+          this.updateBadges();
+        }
+      });
+    }
+  }
+
+  private onLevelUp(lvl: number, reward: { coins: number; gems: number }, unlocked: { name: string; emoji: string }[]) {
+    Sound.levelUp();
+    this.celebrate(`⭐ Level ${lvl}!`, `+${reward.coins}🪙${reward.gems ? `  +${reward.gems}💎` : ""}`);
+    if (unlocked && unlocked.length) {
+      setTimeout(() => this.celebrate(`${unlocked[0].emoji} ${unlocked[0].name} unlocked!`, "New seed available in Seeds"), 1750);
+    }
+  }
+
+  private celebrate(title: string, sub: string) {
+    const el = this.byId("celebrate");
+    el.innerHTML = `<div class="cel-card"><div class="cel-title">${title}</div><div class="cel-sub">${sub}</div></div>`;
+    el.classList.remove("show");
+    void el.offsetWidth; // restart animation
+    el.classList.add("show");
+    clearTimeout((this as any)._celTimer);
+    (this as any)._celTimer = window.setTimeout(() => el.classList.remove("show"), 1700);
   }
 
   openShop() {

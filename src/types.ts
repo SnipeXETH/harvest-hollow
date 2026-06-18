@@ -17,6 +17,13 @@ export interface PlotState {
   plantedAt: number;
 }
 
+/** An active quest the player is working on. */
+export interface QuestInstance {
+  defId: string;
+  target: number;
+  progress: number;
+}
+
 export interface SaveData {
   version: number;
   coins: number;
@@ -32,5 +39,9 @@ export interface SaveData {
   decorations: Record<string, string>;
   /** where the farmer is standing (tile coords, may be fractional) */
   farmer: { col: number; row: number };
+  /** active goals (always 3) */
+  quests: QuestInstance[];
+  /** daily reward tracking */
+  daily: { last: string; streak: number };
   lastSeen: number;
 }

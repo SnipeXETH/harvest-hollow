@@ -272,6 +272,71 @@
         pointer-events: none; white-space: nowrap;
       }
       #toast.show { opacity: 1; }
+
+      /* Left chips (goals / daily) */
+      #chips-left {
+        position: absolute;
+        top: calc(76px + env(safe-area-inset-top));
+        left: 12px;
+        display: flex;
+        gap: 8px;
+      }
+      .chip { position: relative; }
+      .chip .dot {
+        position: absolute;
+        top: -3px; right: -3px;
+        width: 13px; height: 13px;
+        border-radius: 50%;
+        background: #ef4444;
+        border: 2px solid #fff;
+        display: none;
+      }
+      /* Quests */
+      .quest {
+        display: flex; align-items: center; gap: 12px;
+        background: #f5eede; border-radius: 16px;
+        padding: 10px 14px; margin-bottom: 10px;
+      }
+      .quest.done { background: #eaf7df; }
+      .quest .emoji { font-size: 30px; }
+      .quest .meta { flex: 1; }
+      .quest .name { font-size: 17px; font-weight: 600; }
+      .quest .sub { font-size: 13px; color: var(--ink-soft); margin-top: 2px; }
+      .quest .qreward { font-size: 14px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+      .qbar { height: 8px; background: var(--track); border-radius: 5px; margin: 6px 0 2px; overflow: hidden; }
+      .qfill { height: 100%; background: var(--green); border-radius: 5px; transition: width 0.3s ease; }
+      /* Daily strip */
+      .daystrip { display: flex; gap: 6px; justify-content: center; margin: 14px 0 4px; }
+      .daybox {
+        flex: 1; text-align: center; font-size: 12px; font-weight: 600;
+        color: var(--ink-soft); background: #f0e8d8; border-radius: 10px; padding: 8px 2px;
+      }
+      .daybox.cur { background: var(--gold); color: var(--ink); }
+      /* Level-up / reward celebration */
+      #celebrate {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: none; opacity: 0;
+        z-index: 7;
+      }
+      #celebrate.show { animation: celpop 1.7s ease forwards; }
+      @keyframes celpop {
+        0% { opacity: 0; transform: scale(0.7); }
+        12% { opacity: 1; transform: scale(1.05); }
+        20% { transform: scale(1); }
+        80% { opacity: 1; transform: scale(1); }
+        100% { opacity: 0; transform: scale(1.04); }
+      }
+      .cel-card {
+        background: linear-gradient(180deg, #fffdf6, #fff3d6);
+        border: 3px solid var(--gold);
+        border-radius: 22px;
+        padding: 22px 34px;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+      }
+      .cel-title { font-size: 27px; font-weight: 700; color: var(--ink); }
+      .cel-sub { font-size: 18px; font-weight: 600; color: var(--green-dk); margin-top: 4px; }
     </style>
   </head>
   <body>

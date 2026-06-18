@@ -733,6 +733,23 @@ export class FarmScene extends BaseScene {
     this.tweens.add({ targets: t, y: y - 58, alpha: { from: 1, to: 0 }, delay: 180, duration: 760, ease: "Cubic.out", onComplete: () => t.destroy() });
   }
 
+  /** Public: queue the farmer to harvest every ready crop, nearest first. */
+  harvestAll() {
+    const ready: { col: number; row: number; d: number }[] = [];
+    for (const key of Object.keys(GameState.data.plots)) {
+      const [col, row] = key.split(",").map(Number);
+      if (!GameState.isReady(GameState.data.plots[key])) continue;
+      const c = this.tileCenter(col, row);
+      ready.push({ col, row, d: Phaser.Math.Distance.Between(this.farmer.x, this.farmer.y, c.x, c.y) });
+    }
+    if (!ready.length) {
+      UI.toast("No crops are ready yet");
+      return;
+    }
+    ready.sort((a, b) => a.d - b.d);
+    for (const r of ready) this.enqueue({ col: r.col, row: r.row, action: "harvest" }, true);
+  }
+
   /** Public: snap the camera back to the farmer / owned land. */
   recenterView() {
     this.gz = CONFIG.zoomStart;

@@ -2,6 +2,7 @@ import { GameState } from "../state/GameState";
 import { CROPS, CROP_BY_ID } from "../data/crops";
 import { levelProgress } from "../data/levels";
 import { CONFIG } from "../config";
+import { Sound } from "../audio/sound";
 import type { FarmScene, Mode } from "../scenes/FarmScene";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
@@ -46,6 +47,7 @@ class UIController {
         <div class="badge" id="ui-badge"><div class="inner" id="ui-level">1</div></div>
       </div>
       <div id="chips">
+        <div class="chip" id="ui-mute">🔊</div>
         <div class="chip" id="ui-speed">1×</div>
         <div class="chip" id="ui-recenter">🎯</div>
       </div>
@@ -79,6 +81,15 @@ class UIController {
     this.tap(this.byId("ui-shop"), () => this.openShop());
     this.tap(this.byId("ui-recenter"), () => this.farm?.recenterView());
     this.tap(this.speedChip, () => this.cycleSpeed());
+    const muteChip = this.byId("ui-mute");
+    muteChip.textContent = Sound.isMuted() ? "🔇" : "🔊";
+    muteChip.classList.toggle("on", Sound.isMuted());
+    this.tap(muteChip, () => {
+      const m = !Sound.isMuted();
+      Sound.setMuted(m);
+      muteChip.textContent = m ? "🔇" : "🔊";
+      muteChip.classList.toggle("on", m);
+    });
     this.tap(this.byId("ui-hint-x"), () => this.farm?.setMode("idle"));
     this.tap(this.backdrop, (e) => {
       if (e.target === this.backdrop) this.closeSheet();
@@ -87,7 +98,7 @@ class UIController {
     GameState.on("wallet", () => this.refresh(), this);
     GameState.on("xp", () => this.refresh(), this);
     GameState.on("owned", () => this.refresh(), this);
-    GameState.on("levelup", (lvl: number) => this.toast(`⭐ Level ${lvl}! New seeds may be unlocked`), this);
+    GameState.on("levelup", (lvl: number) => { this.toast(`⭐ Level ${lvl}! New seeds may be unlocked`); Sound.levelUp(); }, this);
 
     this.refresh();
   }
@@ -108,6 +119,7 @@ class UIController {
     node.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      Sound.click();
       fn(e);
     });
   }
@@ -202,6 +214,7 @@ class UIController {
         if (GameState.buyChunk(cx, cy)) {
           this.closeSheet();
           this.toast("🎉 New land claimed!");
+          Sound.buy();
         }
       });
     }

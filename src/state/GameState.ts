@@ -36,16 +36,25 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
   }
 
   private freshSave(): SaveData {
+    const owned: Record<string, true> = {};
+    let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
+    for (const [cx, cy] of CONFIG.startChunks) {
+      owned[`${cx},${cy}`] = true;
+      minC = Math.min(minC, cx * CS);
+      maxC = Math.max(maxC, cx * CS + CS - 1);
+      minR = Math.min(minR, cy * CS);
+      maxR = Math.max(maxR, cy * CS + CS - 1);
+    }
     return {
       version: CONFIG.saveVersion,
       coins: CONFIG.startCoins,
       gems: CONFIG.startGems,
       xp: 0,
-      owned: { "0,0": true },
+      owned,
       tilled: {},
       plots: {},
       decorations: {},
-      farmer: { col: CS / 2 - 0.5, row: CS / 2 - 0.5 },
+      farmer: { col: (minC + maxC) / 2, row: (minR + maxR) / 2 },
       lastSeen: Date.now(),
     };
   }
@@ -153,8 +162,9 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
   }
 
   plotCost() {
-    const owned = this.ownedChunkCount();
-    const raw = CONFIG.plotBaseCost * Math.pow(CONFIG.plotCostGrowth, owned - 1);
+    // Cost scales with how many plots you've BOUGHT beyond the starting land.
+    const bought = Math.max(0, this.ownedChunkCount() - CONFIG.startChunks.length);
+    const raw = CONFIG.plotBaseCost * Math.pow(CONFIG.plotCostGrowth, bought);
     return Math.round(raw / 10) * 10;
   }
 

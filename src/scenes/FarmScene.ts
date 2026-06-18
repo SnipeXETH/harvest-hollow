@@ -5,6 +5,7 @@ import { CROP_BY_ID } from "../data/crops";
 import { BaseScene, DPR } from "./BaseScene";
 import { SS } from "../art/TextureFactory";
 import { UI } from "../ui/ui";
+import { Sound } from "../audio/sound";
 
 const W = CONFIG.tileWidth;
 const H = CONFIG.tileHeight;
@@ -146,21 +147,8 @@ export class FarmScene extends BaseScene {
       }
     }
 
-    // Buyable plots — highlight + sign.
+    // Buyable plots — just a sign indicator (no full-area highlight).
     for (const { cx, cy } of GameState.buyableChunks()) {
-      for (let r = 0; r < CS; r++) {
-        for (let c = 0; c < CS; c++) {
-          const col = cx * CS + c;
-          const row = cy * CS + r;
-          const p = this.tilePos(col, row);
-          const ov = this.add
-            .image(p.x, p.y, "tile-buy")
-            .setOrigin(0.5, 0)
-            .setScale(TILE_SCALE)
-            .setDepth(col + row + 0.05);
-          this.ground.push(ov);
-        }
-      }
       this.addBuySign(cx, cy);
     }
 
@@ -467,7 +455,10 @@ export class FarmScene extends BaseScene {
         g.destroy();
         if (this.workG === g) this.workG = undefined;
         this.stopWorkAnim();
-        if (GameState.till(task.col, task.row)) this.dust(c.x, c.y, 0xb98a55);
+        if (GameState.till(task.col, task.row)) {
+          this.dust(c.x, c.y, 0xb98a55);
+          Sound.till();
+        }
         done();
       },
     });
@@ -569,6 +560,7 @@ export class FarmScene extends BaseScene {
       if (task.cropId && GameState.plant(task.col, task.row, task.cropId)) {
         this.dust(s.x, s.y, 0x6fbf3a);
         this.popCrop(task.col, task.row);
+        Sound.plant();
       } else UI.toast("Can't plant there");
     } else if (task.action === "harvest") {
       const plot = GameState.getPlot(task.col, task.row);
@@ -602,6 +594,8 @@ export class FarmScene extends BaseScene {
 
     this.coinBurst(c.x, c.y);
     this.floatWorld(c.x, c.y - 8, `+${crop.sellPrice}🪙`);
+    Sound.harvest();
+    Sound.coin();
   }
 
   private popCrop(col: number, row: number) {

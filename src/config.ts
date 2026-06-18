@@ -6,6 +6,13 @@ export const CONFIG = {
 
   // Land is bought as square chunks ("plots") of CHUNK×CHUNK tiles.
   chunkSize: 4,
+  // Chunks the player owns at the start (a 2×2 block = bigger starting farm).
+  startChunks: [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+  ] as [number, number][],
   // World extent in chunks, from -worldRadius..worldRadius on each axis.
   worldRadiusChunks: 6,
 

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#7ec850" />
+    <title>Harvest Hollow</title>
+    <style>
+      @font-face {
+        font-family: "Fredoka";
+        font-weight: 400;
+        font-display: swap;
+        src: url("fonts/fredoka-400.ttf") format("truetype");
+      }
+      @font-face {
+        font-family: "Fredoka";
+        font-weight: 500;
+        font-display: swap;
+        src: url("fonts/fredoka-500.ttf") format("truetype");
+      }
+      @font-face {
+        font-family: "Fredoka";
+        font-weight: 600;
+        font-display: swap;
+        src: url("fonts/fredoka-600.ttf") format("truetype");
+      }
+      @font-face {
+        font-family: "Fredoka";
+        font-weight: 700;
+        font-display: swap;
+        src: url("fonts/fredoka-700.ttf") format("truetype");
+      }
+      :root {
+        color-scheme: light;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #bfe6ad;
+        font-family: "Fredoka", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        touch-action: none;
+      }
+      #game {
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+      }
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(180deg, #d4eefb 0%, #bfe6ad 100%);
+        color: #4a3826;
+        font-weight: 600;
+        font-size: 22px;
+        letter-spacing: 0.3px;
+        z-index: 10;
+        transition: opacity 0.4s ease;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading">🌱 Harvest Hollow</div>
+    <div id="game"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -29,6 +29,11 @@ export const CONFIG = {
   walkSpeed: 150, // world px per second
   walkMinMs: 180,
 
+  // How long the farmer works a tile (seconds). Scaled down by dev time-scale.
+  tillSeconds: 6,
+  plantSeconds: 1.2,
+  harvestSeconds: 0.7,
+
   saveKey: "harvest-hollow-save-v1",
   saveVersion: 3,
 

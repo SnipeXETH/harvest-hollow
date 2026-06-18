@@ -42,6 +42,10 @@ export class FarmScene extends BaseScene {
   private queue: Task[] = [];
   private busy = false;
   private moveTween?: Phaser.Tweens.Tween;
+  private markers = new Map<string, Phaser.GameObjects.Container>();
+  private workG?: Phaser.GameObjects.Graphics;
+  private chopTween?: Phaser.Tweens.Tween;
+  private multiTouch = false;
 
   mode: Mode = "idle";
   selectedCropId?: string;
@@ -80,6 +84,11 @@ export class FarmScene extends BaseScene {
     this.scale.on("resize", () => this.onResize(), this);
 
     this.input.addPointer(1); // allow 2 simultaneous pointers (pinch)
+
+    // Resolve world taps from the canvas's LIVE bounding rect so targeting
+    // stays pixel-accurate even as the mobile address bar resizes the page.
+    this.game.canvas.addEventListener("pointerdown", () => { this.moved = 0; });
+    this.game.canvas.addEventListener("pointerup", (e) => this.onCanvasPointerUp(e));
 
     const loader = document.getElementById("loading");
     if (loader) {
@@ -237,7 +246,8 @@ export class FarmScene extends BaseScene {
     this.farmerTile = { col, row };
     const c = this.tileCenter(col, row);
     this.farmer.setPosition(c.x, c.y + 4);
-    this.farmer.setDepth(col + row + 0.35);
+    // Behind the crop on the same tile so the plant stays visible.
+    this.farmer.setDepth(col + row + 0.2);
   }
 
   // ---- Soil / crops --------------------------------------------------
@@ -288,6 +298,7 @@ export class FarmScene extends BaseScene {
 
     if (p1.isDown && p2.isDown) {
       // Pinch zoom.
+      this.multiTouch = true;
       const dist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
       if (!this.pinching) {
         this.pinching = true;
@@ -321,25 +332,32 @@ export class FarmScene extends BaseScene {
       return;
     }
 
-    // No pointers down: resolve a release.
-    if (this.dragging) {
-      const wasTap = this.moved < TAP_SLOP && !this.pinching;
-      const upX = this.input.activePointer.x;
-      const upY = this.input.activePointer.y;
-      this.dragging = false;
-      if (wasTap) this.onTap(this.input.activePointer);
-      void upX; void upY;
-    }
+    // No pointers down: clear gesture state (taps resolved via DOM handler).
+    if (this.dragging) this.dragging = false;
     this.pinching = false;
+    this.multiTouch = false;
   }
 
-  private onTap(pointer: Phaser.Input.Pointer) {
-    // The HTML toolbar/HUD absorb their own taps; only block while a menu is open.
-    if (UI.isModalOpen()) return;
+  /** World point from a raw client position using the canvas's live rect. */
+  private worldFromClient(clientX: number, clientY: number) {
+    const canvas = this.game.canvas;
+    const r = canvas.getBoundingClientRect();
+    const bx = (clientX - r.left) * (canvas.width / r.width);
+    const by = (clientY - r.top) * (canvas.height / r.height);
+    return this.cameras.main.getWorldPoint(bx, by);
+  }
 
-    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+  private onCanvasPointerUp(e: PointerEvent) {
+    if (UI.isModalOpen()) return;
+    if (this.pinching || this.multiTouch) return;
+    if (this.moved >= TAP_SLOP) return; // it was a pan, not a tap
+    const wp = this.worldFromClient(e.clientX, e.clientY);
     this.ripple(wp.x, wp.y);
-    const { col, row } = this.pickTile(wp.x, wp.y);
+    this.handleTileTap(wp.x, wp.y);
+  }
+
+  private handleTileTap(wx: number, wy: number) {
+    const { col, row } = this.pickTile(wx, wy);
     const { cx, cy } = GameState.chunkOf(col, row);
 
     // Buyable plot?
@@ -386,17 +404,19 @@ export class FarmScene extends BaseScene {
   private enqueue(task: Task, append: boolean) {
     if (!append && this.busy) {
       this.queue = [task];
-      // current move will continue; queue picks up after
     } else {
       this.queue.push(task);
     }
+    this.refreshMarkers();
     if (!this.busy) this.processQueue();
   }
 
   private processQueue() {
     const task = this.queue.shift();
+    this.refreshMarkers();
     if (!task) {
       this.busy = false;
+      this.stopWorkAnim();
       this.stopWalkAnim();
       GameState.setFarmer(this.farmerTile.col, this.farmerTile.row);
       GameState.save();
@@ -404,8 +424,73 @@ export class FarmScene extends BaseScene {
     }
     this.busy = true;
     this.walkTo(task.col, task.row, () => {
-      if (task.action !== "walk") this.executeTask(task);
-      this.time.delayedCall(task.action === "walk" ? 0 : 130, () => this.processQueue());
+      if (task.action === "till") {
+        this.workTile(task, () => this.processQueue());
+      } else {
+        if (task.action !== "walk") this.executeTask(task);
+        this.time.delayedCall(task.action === "walk" ? 0 : 140, () => this.processQueue());
+      }
+    });
+  }
+
+  /** Timed ploughing: farmer works the tile for a few seconds with a progress ring. */
+  private workTile(task: Task, done: () => void) {
+    const ms = Math.max(160, (CONFIG.tillSeconds * 1000) / Math.max(1, GameState.timeScale));
+    const c = this.tileCenter(task.col, task.row);
+    const cx = c.x;
+    const cy = c.y - 26;
+    const R = 15;
+
+    this.startWorkAnim();
+    const g = this.add.graphics().setDepth(task.col + task.row + 0.8);
+    this.workG = g;
+    const obj = { p: 0 };
+    this.tweens.add({
+      targets: obj,
+      p: 1,
+      duration: ms,
+      ease: "Linear",
+      onUpdate: () => {
+        g.clear();
+        g.fillStyle(0x000000, 0.3);
+        g.fillCircle(cx, cy, R + 3);
+        g.lineStyle(4, 0xffffff, 0.45);
+        g.beginPath();
+        g.arc(cx, cy, R, 0, Math.PI * 2);
+        g.strokePath();
+        g.lineStyle(4, 0x8fe04a, 1);
+        g.beginPath();
+        g.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * obj.p);
+        g.strokePath();
+      },
+      onComplete: () => {
+        g.destroy();
+        if (this.workG === g) this.workG = undefined;
+        this.stopWorkAnim();
+        if (GameState.till(task.col, task.row)) this.dust(c.x, c.y, 0xb98a55);
+        done();
+      },
+    });
+  }
+
+  private refreshMarkers() {
+    this.markers.forEach((m) => m.destroy());
+    this.markers.clear();
+    this.queue.forEach((task, i) => {
+      if (task.action === "walk") return;
+      const c = this.tileCenter(task.col, task.row);
+      const icon = task.action === "till" ? "🪓" : task.action === "plant" ? (task.cropId ? CROP_BY_ID[task.cropId].emoji : "🌱") : "🧺";
+      const cont = this.add.container(c.x, c.y - 24).setDepth(task.col + task.row + 0.7);
+      const bg = this.add.graphics();
+      bg.fillStyle(0x000000, 0.18);
+      bg.fillCircle(0, 2, 15);
+      bg.fillStyle(0xfffdf6, 0.95);
+      bg.fillCircle(0, 0, 15);
+      const t = this.tx(0, 0, icon, { fontFamily: "Fredoka", fontSize: "18px" }).setOrigin(0.5);
+      cont.add([bg, t]);
+      cont.setScale(0.9).setAlpha(0.92);
+      this.markers.set(`${task.col},${task.row}#${i}`, cont);
+      this.tweens.add({ targets: cont, y: c.y - 30, duration: 620, yoyo: true, repeat: -1, ease: "Sine.inOut" });
     });
   }
 
@@ -456,6 +541,26 @@ export class FarmScene extends BaseScene {
     this.farmer.setTexture("farmer-0");
   }
 
+  private startWorkAnim() {
+    this.startWalkAnim();
+    if (!this.chopTween) {
+      this.farmer.setScale(FARMER_SCALE);
+      this.chopTween = this.tweens.add({
+        targets: this.farmer,
+        scaleY: FARMER_SCALE * 0.86,
+        duration: 150,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.inOut",
+      });
+    }
+  }
+  private stopWorkAnim() {
+    this.chopTween?.stop();
+    this.chopTween = undefined;
+    this.farmer.setScale(FARMER_SCALE);
+  }
+
   private executeTask(task: Task) {
     const s = this.tileCenter(task.col, task.row);
     if (task.action === "till") {
@@ -469,10 +574,34 @@ export class FarmScene extends BaseScene {
       const plot = GameState.getPlot(task.col, task.row);
       const crop = plot ? CROP_BY_ID[plot.cropId] : undefined;
       if (GameState.harvest(task.col, task.row) && crop) {
-        this.coinBurst(s.x, s.y);
-        this.floatWorld(s.x, s.y, `+${crop.sellPrice}🪙`);
+        this.harvestFx(task.col, task.row, crop);
       }
     }
+  }
+
+  /** Juicy harvest: crop pops up, gold ring, coin burst, shake, big float. */
+  private harvestFx(col: number, row: number, crop: { emoji: string; sellPrice: number }) {
+    const c = this.tileCenter(col, row);
+    this.cameras.main.shake(140, 0.004);
+
+    const fly = this.tx(c.x, c.y + 6, crop.emoji, { fontFamily: "Fredoka", fontSize: "40px" })
+      .setOrigin(0.5, 0.85)
+      .setDepth(100003);
+    this.tweens.add({
+      targets: fly,
+      y: c.y - 42,
+      scale: { from: 1.5, to: 0.5 },
+      alpha: { from: 1, to: 0 },
+      duration: 620,
+      ease: "Cubic.out",
+      onComplete: () => fly.destroy(),
+    });
+
+    const ring = this.add.circle(c.x, c.y, 14, 0xffd34d, 0).setStrokeStyle(4, 0xffd34d, 0.9).setDepth(100003);
+    this.tweens.add({ targets: ring, scale: 3.4, alpha: 0, duration: 440, ease: "Cubic.out", onComplete: () => ring.destroy() });
+
+    this.coinBurst(c.x, c.y);
+    this.floatWorld(c.x, c.y - 8, `+${crop.sellPrice}🪙`);
   }
 
   private popCrop(col: number, row: number) {
@@ -493,12 +622,12 @@ export class FarmScene extends BaseScene {
   }
   private coinBurst(x: number, y: number) {
     const e = this.add.particles(x, y, "spark", {
-      speed: { min: 80, max: 220 }, angle: { min: 200, max: 340 }, gravityY: 520,
-      scale: { start: 0.8 / SS, end: 0 }, tint: [0xffe169, 0xffc83d, 0xfff4c2], lifespan: 650, quantity: 14, emitting: false,
+      speed: { min: 110, max: 300 }, angle: { min: 190, max: 350 }, gravityY: 560,
+      scale: { start: 1.0 / SS, end: 0 }, tint: [0xffe169, 0xffc83d, 0xfff4c2, 0xffffff], lifespan: 720, quantity: 22, emitting: false,
     });
     e.setDepth(100002);
-    e.explode(14);
-    this.time.delayedCall(800, () => e.destroy());
+    e.explode(22);
+    this.time.delayedCall(900, () => e.destroy());
   }
 
   // ---- Targets / crop animation -------------------------------------
@@ -580,11 +709,12 @@ export class FarmScene extends BaseScene {
   }
 
   private floatWorld(x: number, y: number, text: string) {
-    const t = this.tx(x, y, text, { fontFamily: "Fredoka", fontSize: "24px", fontStyle: "700", color: "#ffe169" })
+    const t = this.tx(x, y, text, { fontFamily: "Fredoka", fontSize: "26px", fontStyle: "700", color: "#ffe169" })
       .setOrigin(0.5)
       .setDepth(100003);
-    t.setStroke("#5a3a1a", 5);
-    this.tweens.add({ targets: t, y: y - 50, alpha: { from: 1, to: 0 }, duration: 900, ease: "Cubic.out", onComplete: () => t.destroy() });
+    t.setStroke("#5a3a1a", 6);
+    this.tweens.add({ targets: t, scale: { from: 0.4, to: 1.15 }, duration: 220, ease: "Back.out" });
+    this.tweens.add({ targets: t, y: y - 58, alpha: { from: 1, to: 0 }, delay: 180, duration: 760, ease: "Cubic.out", onComplete: () => t.destroy() });
   }
 
   /** Public: snap the camera back to the farmer / owned land. */

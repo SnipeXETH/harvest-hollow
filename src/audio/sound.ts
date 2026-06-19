@@ -99,10 +99,11 @@ class SoundEngine {
     const t = this.now();
     [523.25, 659.25, 783.99].forEach((f, i) => this.tone(f, t + i * 0.06, 0.2, "triangle", 0.18));
   }
-  coin() {
+  coin(combo = 1) {
     const t = this.now();
-    this.tone(900, t, 0.07, "square", 0.08, 1350);
-    this.tone(1350, t + 0.05, 0.09, "square", 0.06);
+    const p = 1 + Math.min(Math.max(combo - 1, 0), 12) * 0.06; // pitch climbs with combo
+    this.tone(900 * p, t, 0.07, "square", 0.08, 1350 * p);
+    this.tone(1350 * p, t + 0.05, 0.09, "square", 0.06);
   }
   buy() {
     const t = this.now();

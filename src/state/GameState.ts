@@ -5,8 +5,19 @@ import { CROPS, CROP_BY_ID } from "../data/crops";
 import { levelForXp } from "../data/levels";
 import { genQuest, QUEST_BY_ID } from "../data/quests";
 import type { QuestType } from "../data/quests";
+import { DECOR_BY_ID } from "../data/decorations";
 
-type Events = "wallet" | "xp" | "levelup" | "land" | "owned" | "timescale" | "quests" | "daily";
+type Events =
+  | "wallet"
+  | "xp"
+  | "levelup"
+  | "land"
+  | "owned"
+  | "timescale"
+  | "quests"
+  | "daily"
+  | "decor"
+  | "combo";
 
 const CS = CONFIG.chunkSize;
 
@@ -14,6 +25,10 @@ const CS = CONFIG.chunkSize;
 class GameStateImpl extends Phaser.Events.EventEmitter {
   data!: SaveData;
   timeScale = CONFIG.defaultTimeScale;
+
+  // Harvest combo (not persisted).
+  private comboCount = 0;
+  private comboAt = 0;
 
   load(): void {
     const raw = localStorage.getItem(CONFIG.saveKey);
@@ -25,6 +40,7 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
           parsed.tilled ??= {};
           parsed.plots ??= {};
           parsed.decorations ??= {};
+          parsed.inventory ??= {};
           parsed.farmer ??= { col: CS / 2, row: CS / 2 };
           parsed.quests ??= [];
           parsed.daily ??= { last: "", streak: 0 };
@@ -59,6 +75,7 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
       tilled: {},
       plots: {},
       decorations: {},
+      inventory: {},
       farmer: { col: (minC + maxC) / 2, row: (minR + maxR) / 2 },
       quests: this.makeStartingQuests(),
       daily: { last: "", streak: 0 },
@@ -241,6 +258,7 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
   till(col: number, row: number): boolean {
     if (!this.isOwnedTile(col, row)) return false;
     if (this.tileState(col, row) !== "grass") return false;
+    if (this.hasDecor(col, row)) return false;
     if (!this.spendCoins(CONFIG.tillCost)) return false;
     this.data.tilled[this.key(col, row)] = true;
     this.emit("land");
@@ -278,19 +296,70 @@ class GameStateImpl extends Phaser.Events.EventEmitter {
     return Math.max(0, Math.ceil(crop.growSeconds - elapsed));
   }
 
-  harvest(col: number, row: number): boolean {
+  /** Harvest a ready crop. Returns coins earned (0 if nothing harvested). */
+  harvest(col: number, row: number): number {
     const plot = this.getPlot(col, row);
-    if (!plot || !this.isReady(plot)) return false;
+    if (!plot || !this.isReady(plot)) return 0;
     const crop = CROP_BY_ID[plot.cropId];
     delete this.data.plots[this.key(col, row)];
     this.emit("land");
-    if (crop) {
-      this.addCoins(crop.sellPrice);
-      this.addXp(crop.xp);
-      this.trackQuest("harvest");
-      this.trackQuest("harvestCrop", 1, crop.id);
-      this.trackQuest("earn", crop.sellPrice);
-    }
+    if (!crop) return 0;
+
+    // Combo: chaining harvests quickly multiplies the payout.
+    const now = Date.now();
+    this.comboCount = now - this.comboAt < CONFIG.comboWindowMs ? this.comboCount + 1 : 1;
+    this.comboAt = now;
+    const mult = 1 + Math.min(this.comboCount - 1, CONFIG.comboMaxSteps) * 0.1;
+    const gain = Math.round(crop.sellPrice * mult);
+
+    this.addCoins(gain);
+    this.addXp(crop.xp);
+    this.trackQuest("harvest");
+    this.trackQuest("harvestCrop", 1, crop.id);
+    this.trackQuest("earn", gain);
+    this.emit("combo", this.comboCount, mult);
+    this.save();
+    return gain;
+  }
+
+  // --- Decorations ----------------------------------------------------
+  hasDecor(col: number, row: number) {
+    return !!this.data.decorations[this.key(col, row)];
+  }
+  getDecor(col: number, row: number): string | undefined {
+    return this.data.decorations[this.key(col, row)];
+  }
+  canPlaceDecor(col: number, row: number) {
+    return this.isOwnedTile(col, row) && this.tileState(col, row) === "grass" && !this.hasDecor(col, row);
+  }
+  inventoryCount(id: string) {
+    return this.data.inventory[id] || 0;
+  }
+  /** Buy a decoration into the bag (does not place it). */
+  buyDecor(id: string): boolean {
+    const def = DECOR_BY_ID[id];
+    if (!def || !this.spendCoins(def.cost)) return false;
+    this.data.inventory[id] = this.inventoryCount(id) + 1;
+    this.emit("decor");
+    this.save();
+    return true;
+  }
+  /** Place a decoration from the bag onto a tile. */
+  placeDecor(col: number, row: number, id: string): boolean {
+    if (!this.canPlaceDecor(col, row) || this.inventoryCount(id) <= 0) return false;
+    this.data.inventory[id] = this.inventoryCount(id) - 1;
+    this.data.decorations[this.key(col, row)] = id;
+    this.emit("decor");
+    this.save();
+    return true;
+  }
+  /** Pick a placed decoration back up into the bag. */
+  removeDecor(col: number, row: number): boolean {
+    const id = this.getDecor(col, row);
+    if (!id) return false;
+    delete this.data.decorations[this.key(col, row)];
+    this.data.inventory[id] = this.inventoryCount(id) + 1;
+    this.emit("decor");
     this.save();
     return true;
   }

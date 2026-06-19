@@ -4,6 +4,7 @@ import { levelProgress } from "../data/levels";
 import { CONFIG } from "../config";
 import { Sound } from "../audio/sound";
 import { QUEST_BY_ID, questText } from "../data/quests";
+import { DECOR, DECOR_BY_ID } from "../data/decorations";
 import type { FarmScene, Mode } from "../scenes/FarmScene";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
@@ -65,6 +66,7 @@ class UIController {
       </div>
       <div id="backdrop"><div class="sheet" id="ui-sheet"></div></div>
       <div id="celebrate"></div>
+      <div id="combo"></div>
       <div id="toast"></div>
     `;
     document.body.appendChild(this.root);
@@ -111,14 +113,15 @@ class UIController {
     GameState.on("quests", () => this.updateBadges(), this);
     GameState.on("daily", () => this.updateBadges(), this);
     GameState.on("levelup", (lvl: number, reward: any, unlocked: any[]) => this.onLevelUp(lvl, reward, unlocked), this);
+    GameState.on("combo", (combo: number, mult: number) => this.onCombo(combo, mult), this);
 
     this.refresh();
   }
 
   bindFarm(farm: FarmScene) {
     this.farm = farm;
-    farm.events.on("mode", (m: Mode, cropId?: string) => this.onMode(m, cropId));
-    this.onMode(farm.mode, farm.selectedCropId);
+    farm.events.on("mode", (m: Mode, cropId?: string, decorId?: string) => this.onMode(m, cropId, decorId));
+    this.onMode(farm.mode, farm.selectedCropId, farm.selectedDecorId);
     this.refresh(); // GameState is loaded by now
     this.updateBadges();
     if (GameState.dailyAvailable()) setTimeout(() => this.openDaily(), 700);
@@ -155,7 +158,7 @@ class UIController {
     this.badgeEl.style.setProperty("--p", `${Math.round(p.ratio * 100)}`);
   }
 
-  private onMode(mode: Mode, cropId?: string) {
+  private onMode(mode: Mode, cropId?: string, decorId?: string) {
     this.hoeBtn.classList.toggle("active", mode === "hoe");
     this.seedsBtn.classList.toggle("active", mode === "plant");
     const ico = this.seedsBtn.querySelector(".ico")!;
@@ -163,7 +166,21 @@ class UIController {
 
     if (mode === "hoe") this.showHint("🪓 Tap your grass to till it into soil");
     else if (mode === "plant" && cropId) this.showHint(`🌱 Planting ${CROP_BY_ID[cropId].name} — tap a soil plot`);
+    else if (mode === "place" && decorId) this.showHint(`${DECOR_BY_ID[decorId].emoji} Place on your land · 📦 ${GameState.inventoryCount(decorId)} left`);
+    else if (mode === "remove") this.showHint("🤚 Tap a decoration to return it to your bag");
     else this.hideHint();
+  }
+
+  private onCombo(combo: number, _mult: number) {
+    Sound.coin(combo);
+    if (combo < 2) return;
+    const el = this.byId("combo");
+    el.textContent = `🔥 Combo x${combo}`;
+    el.classList.remove("show");
+    void el.offsetWidth;
+    el.classList.add("show");
+    clearTimeout((this as any)._comboTimer);
+    (this as any)._comboTimer = window.setTimeout(() => el.classList.remove("show"), CONFIG.comboWindowMs);
   }
 
   private showHint(text: string) {
@@ -332,12 +349,58 @@ class UIController {
   }
 
   openShop() {
+    // Bag: owned-but-unplaced decorations, tap to place.
+    const bag = DECOR.filter((d) => GameState.inventoryCount(d.id) > 0)
+      .map(
+        (d) => `<div class="store-item bag" data-place="${d.id}">
+          <div class="store-emoji">${d.emoji}</div>
+          <div class="store-name">${d.name}</div>
+          <div class="store-cost">📦 ${GameState.inventoryCount(d.id)}</div>
+        </div>`
+      )
+      .join("");
+    const bagSection = bag
+      ? `<div class="store-sub">Your bag — tap to place</div><div class="store-grid">${bag}</div>`
+      : "";
+
+    const items = DECOR.map(
+      (d) => `<div class="store-item" data-buy="${d.id}">
+        <div class="store-emoji">${d.emoji}</div>
+        <div class="store-name">${d.name}</div>
+        <div class="store-cost">🪙 ${d.cost}</div>
+      </div>`
+    ).join("");
+
     this.openSheet(`
-      <h2>Shop</h2>
-      <p>🪓 Hoe grass into soil, 🌱 plant seeds,<br>then tap ripe crops to harvest.<br><br>
-      Tap a glowing plot at the edge of your<br>farm to buy more land!<br><br>
-      💎 Premium shop coming soon.</p>
+      <h2>Decorations</h2>
+      ${bagSection}
+      <div class="store-sub">Buy</div>
+      <div class="store-grid">${items}</div>
+      <button class="bigbtn alt" id="ui-remove-decor">🤚 Pick up decorations</button>
     `);
+
+    this.sheet.querySelectorAll<HTMLElement>("[data-buy]").forEach((it) =>
+      this.tap(it, () => {
+        const id = it.dataset.buy!;
+        if (GameState.buyDecor(id)) {
+          Sound.buy();
+          this.farm?.setMode("place", undefined, id);
+          this.closeSheet();
+        } else {
+          this.toast("Not enough coins");
+        }
+      })
+    );
+    this.sheet.querySelectorAll<HTMLElement>("[data-place]").forEach((it) =>
+      this.tap(it, () => {
+        this.farm?.setMode("place", undefined, it.dataset.place!);
+        this.closeSheet();
+      })
+    );
+    this.tap(this.byId("ui-remove-decor"), () => {
+      this.farm?.setMode("remove");
+      this.closeSheet();
+    });
   }
 
   // ---- Toast ---------------------------------------------------------

@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { CONFIG } from "../config";
 import { CROPS } from "../data/crops";
+import { DECOR } from "../data/decorations";
 import { DPR } from "../scenes/BaseScene";
 
 const W = CONFIG.tileWidth;
@@ -62,6 +63,9 @@ export function generateTextures(scene: Phaser.Scene): void {
   // Dense crop clusters (one texture per crop + a sprout cluster).
   bakeCrops(scene, s);
 
+  // Decoration icons (one standing emoji texture per decoration).
+  bakeDecor(scene, s);
+
   // Soft round particle.
   {
     const g = scene.add.graphics();
@@ -98,6 +102,19 @@ function bakeCrops(scene: Phaser.Scene, s: number) {
 
   for (const c of CROPS) cluster(`crop-${c.id}`, c.emoji);
   cluster("sprout-cluster", "🌱");
+}
+
+export const DECOR_TEX = { tw: 68, th: 74 };
+
+function bakeDecor(scene: Phaser.Scene, s: number) {
+  const { tw, th } = DECOR_TEX;
+  for (const d of DECOR) {
+    const rt = scene.add.renderTexture(0, 0, tw * s, th * s).setVisible(false);
+    const t = scene.add.text(0, 0, d.emoji, { fontSize: `${46 * s}px` }).setOrigin(0.5, 1);
+    rt.draw(t, (tw / 2) * s, (th - 4) * s);
+    t.destroy();
+    rt.saveTexture(`decor-${d.id}`);
+  }
 }
 
 function drawFarmer(scene: Phaser.Scene, key: string, s: number, frame: number) {

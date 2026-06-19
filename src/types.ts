@@ -37,6 +37,8 @@ export interface SaveData {
   plots: Record<string, PlotState>;
   /** decoration ids placed, keyed by "col,row" */
   decorations: Record<string, string>;
+  /** owned-but-unplaced decorations: decorId -> count (the "bag") */
+  inventory: Record<string, number>;
   /** where the farmer is standing (tile coords, may be fractional) */
   farmer: { col: number; row: number };
   /** active goals (always 3) */

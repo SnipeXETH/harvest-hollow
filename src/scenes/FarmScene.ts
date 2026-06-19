@@ -11,10 +11,11 @@ const W = CONFIG.tileWidth;
 const H = CONFIG.tileHeight;
 const TILE_SCALE = 1 / SS; // display supersampled textures at design size
 const FARMER_SCALE = 1.25 / SS;
+const DECOR_SCALE = 1 / SS;
 const CS = CONFIG.chunkSize;
 const TAP_SLOP = 10; // CSS px of movement still counts as a tap
 
-export type Mode = "idle" | "hoe" | "plant";
+export type Mode = "idle" | "hoe" | "plant" | "place" | "remove";
 
 interface SoilView {
   soil: Phaser.GameObjects.Image;
@@ -50,6 +51,8 @@ export class FarmScene extends BaseScene {
 
   mode: Mode = "idle";
   selectedCropId?: string;
+  selectedDecorId?: string;
+  private decorViews = new Map<string, Phaser.GameObjects.Image>();
 
   // Camera / input
   private gz = CONFIG.zoomStart;
@@ -71,6 +74,7 @@ export class FarmScene extends BaseScene {
     this.buildWorld();
     this.buildFarmer();
     this.syncSoil();
+    this.syncDecor();
 
     // Centre on the owned land.
     const c = this.tileCenter(GameState.data.farmer.col, GameState.data.farmer.row);
@@ -81,7 +85,8 @@ export class FarmScene extends BaseScene {
     UI.bindFarm(this);
 
     GameState.on("land", () => { this.syncSoil(); this.refreshTargets(); }, this);
-    GameState.on("owned", () => { this.buildWorld(); this.syncSoil(); this.refreshTargets(); }, this);
+    GameState.on("decor", () => { this.syncDecor(); this.refreshTargets(); }, this);
+    GameState.on("owned", () => { this.buildWorld(); this.syncSoil(); this.syncDecor(); this.refreshTargets(); }, this);
     this.scale.on("resize", () => this.onResize(), this);
 
     this.input.addPointer(1); // allow 2 simultaneous pointers (pinch)
@@ -101,10 +106,11 @@ export class FarmScene extends BaseScene {
   }
 
   // ---- Tools ---------------------------------------------------------
-  setMode(mode: Mode, cropId?: string) {
+  setMode(mode: Mode, cropId?: string, decorId?: string) {
     this.mode = mode;
     this.selectedCropId = cropId;
-    this.events.emit("mode", mode, cropId);
+    this.selectedDecorId = decorId;
+    this.events.emit("mode", mode, cropId, decorId);
     this.refreshTargets();
   }
 
@@ -272,6 +278,34 @@ export class FarmScene extends BaseScene {
     return { soil, crop, bar };
   }
 
+  // ---- Decorations ---------------------------------------------------
+  private syncDecor() {
+    // Remove views whose decoration is gone.
+    for (const [key, img] of this.decorViews) {
+      if (!GameState.data.decorations[key]) {
+        img.destroy();
+        this.decorViews.delete(key);
+      }
+    }
+    // Add/update existing decorations.
+    for (const key of Object.keys(GameState.data.decorations)) {
+      const id = GameState.data.decorations[key];
+      const [col, row] = key.split(",").map(Number);
+      let img = this.decorViews.get(key);
+      if (!img) {
+        const c = this.tileCenter(col, row);
+        img = this.add
+          .image(c.x, c.y + 6, `decor-${id}`)
+          .setOrigin(0.5, 1)
+          .setScale(DECOR_SCALE)
+          .setDepth(col + row + 0.45);
+        this.decorViews.set(key, img);
+      } else if (img.texture.key !== `decor-${id}`) {
+        img.setTexture(`decor-${id}`);
+      }
+    }
+  }
+
   // ---- Tap / camera input -------------------------------------------
   update() {
     this.handleCameraInput();
@@ -361,6 +395,30 @@ export class FarmScene extends BaseScene {
 
     const owned = GameState.isOwnedTile(col, row);
     const state = GameState.tileState(col, row);
+
+    if (this.mode === "place") {
+      const id = this.selectedDecorId;
+      if (!owned) UI.toast("You don't own this land");
+      else if (GameState.hasDecor(col, row)) UI.toast("Something's already here");
+      else if (state !== "grass") UI.toast("Clear this plot first");
+      else if (id && GameState.placeDecor(col, row, id)) {
+        this.ripple(this.tileCenter(col, row).x, this.tileCenter(col, row).y);
+        Sound.plant();
+        if (GameState.inventoryCount(id) <= 0) {
+          this.setMode("idle");
+          UI.toast("All placed! Buy more in the Shop");
+        }
+      } else UI.toast("None left in your bag");
+      return;
+    }
+    if (this.mode === "remove") {
+      if (GameState.hasDecor(col, row)) {
+        GameState.removeDecor(col, row);
+        Sound.click();
+        UI.toast("📦 Returned to your bag");
+      } else UI.toast("Tap a decoration to pick it up");
+      return;
+    }
 
     if (this.mode === "hoe") {
       if (owned && state === "grass") this.enqueue({ col, row, action: "till" }, true);
@@ -570,14 +628,13 @@ export class FarmScene extends BaseScene {
     } else if (task.action === "harvest") {
       const plot = GameState.getPlot(task.col, task.row);
       const crop = plot ? CROP_BY_ID[plot.cropId] : undefined;
-      if (GameState.harvest(task.col, task.row) && crop) {
-        this.harvestFx(task.col, task.row, crop);
-      }
+      const gain = GameState.harvest(task.col, task.row);
+      if (gain > 0 && crop) this.harvestFx(task.col, task.row, crop, gain);
     }
   }
 
   /** Juicy harvest: crop pops up, gold ring, coin burst, shake, big float. */
-  private harvestFx(col: number, row: number, crop: { emoji: string; sellPrice: number }) {
+  private harvestFx(col: number, row: number, crop: { emoji: string }, gain: number) {
     const c = this.tileCenter(col, row);
     this.cameras.main.shake(140, 0.004);
 
@@ -598,9 +655,8 @@ export class FarmScene extends BaseScene {
     this.tweens.add({ targets: ring, scale: 3.4, alpha: 0, duration: 440, ease: "Cubic.out", onComplete: () => ring.destroy() });
 
     this.coinBurst(c.x, c.y);
-    this.floatWorld(c.x, c.y - 8, `+${crop.sellPrice}🪙`);
+    this.floatWorld(c.x, c.y - 8, `+${gain}🪙`);
     Sound.harvest();
-    Sound.coin();
   }
 
   private popCrop(col: number, row: number) {
@@ -649,7 +705,13 @@ export class FarmScene extends BaseScene {
           const col = cx * CS + c;
           const row = cy * CS + r;
           const st = GameState.tileState(col, row);
-          const valid = this.mode === "hoe" ? st === "grass" : st === "soil";
+          const decor = GameState.hasDecor(col, row);
+          const valid =
+            this.mode === "hoe" ? st === "grass" && !decor
+            : this.mode === "plant" ? st === "soil"
+            : this.mode === "place" ? st === "grass" && !decor
+            : this.mode === "remove" ? decor
+            : false;
           if (!valid) continue;
           const p = this.tilePos(col, row);
           const img = this.add.image(p.x, p.y, "tile-target").setOrigin(0.5, 0).setScale(TILE_SCALE).setDepth(col + row + 0.4);

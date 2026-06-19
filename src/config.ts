@@ -41,6 +41,11 @@ export const CONFIG = {
   plantSeconds: 1.2,
   harvestSeconds: 0.7,
 
+  // Harvest combo: chaining harvests within the window builds a coin multiplier.
+  comboWindowMs: 4000,
+  comboMaxSteps: 10, // each step = +10% coins (so up to 2x)
+  decorRefund: 0.5, // fraction of cost refunded when removing a decoration
+
   saveKey: "harvest-hollow-save-v1",
   saveVersion: 4,
 

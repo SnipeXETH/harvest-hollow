@@ -337,6 +337,45 @@
       }
       .cel-title { font-size: 27px; font-weight: 700; color: var(--ink); }
       .cel-sub { font-size: 18px; font-weight: 600; color: var(--green-dk); margin-top: 4px; }
+
+      /* Decoration store */
+      .store-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin: 12px 0;
+      }
+      .store-item {
+        background: #f5eede; border-radius: 16px;
+        padding: 10px 6px; text-align: center; cursor: pointer;
+        transition: transform 0.06s ease;
+      }
+      .store-item:active { transform: scale(0.94); }
+      .store-emoji { font-size: 38px; line-height: 1.1; }
+      .store-name { font-size: 13px; font-weight: 600; color: var(--ink); margin-top: 2px; }
+      .store-cost { font-size: 13px; font-weight: 600; color: #caa12a; }
+      .store-item.bag { background: #eaf7df; }
+      .store-item.bag .store-cost { color: var(--green-dk); }
+      .store-sub { font-size: 14px; font-weight: 600; color: var(--ink-soft); margin: 6px 2px 0; text-align: left; }
+      .bigbtn.alt { background: #e6dcc6; color: var(--ink); box-shadow: 0 4px 0 #cdbf9f; }
+
+      /* Combo popup */
+      #combo {
+        position: absolute; left: 50%; top: 30%;
+        transform: translateX(-50%);
+        pointer-events: none; opacity: 0;
+        font-size: 30px; font-weight: 700; color: #fff;
+        text-shadow: 0 2px 0 #c0392b, 0 0 14px rgba(255, 120, 40, 0.7);
+        z-index: 7;
+        transition: opacity 0.3s ease;
+      }
+      #combo.show { animation: combopop 0.5s ease forwards; }
+      @keyframes combopop {
+        0% { opacity: 0; transform: translateX(-50%) scale(0.5); }
+        40% { opacity: 1; transform: translateX(-50%) scale(1.25); }
+        70% { transform: translateX(-50%) scale(1); }
+        100% { opacity: 1; transform: translateX(-50%) scale(1); }
+      }
     </style>
   </head>
   <body>

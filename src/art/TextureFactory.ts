@@ -46,7 +46,12 @@ export function generateTextures(scene: Phaser.Scene): void {
 
   bakeTile("tile-grass", (g) => grassTile(g, s, 0x7ec24a, 0));
   bakeTile("tile-grass-2", (g) => grassTile(g, s, 0x84c84e, 1));
-  bakeTile("tile-soil", (g) => soilTile(g, s));
+  if (scene.textures.exists("dirt-src")) {
+    // Real dirt texture, diamond-cropped, with plowed furrows drawn on top.
+    texturedDiamond(scene, "tile-soil", "dirt-src", s, (g) => soilFurrows(g, s));
+  } else {
+    bakeTile("tile-soil", (g) => soilTile(g, s));
+  }
   // Buyable plot highlight tile.
   bakeTile("tile-buy", (g) => diamond(g, s, 0xffe27a, 0.28, { c: 0xfff0b8, a: 0.9, w: 2 }));
   // Target highlight (valid action / tap feedback).
@@ -190,25 +195,72 @@ function grassTile(g: Phaser.GameObjects.Graphics, s: number, base: number, vari
   }
 }
 
-function soilTile(g: Phaser.GameObjects.Graphics, s: number) {
-  diamond(g, s, 0x9b5e34, 1, { c: 0x6f3f20, a: 0.5, w: 2 });
+function soilFurrows(g: Phaser.GameObjects.Graphics, s: number) {
   // plowed rows: 4 parallel furrows fully inside the diamond
   for (const t of [0.2, 0.4, 0.6, 0.8]) {
     const ax = 55 * t, ay = 27.5 * (1 - t);
     const bx = 55 + 55 * t, by = 55 - 27.5 * t;
-    // ridge highlight just above the furrow
-    g.lineStyle(2 * s, 0xb37a45, 0.7);
+    g.lineStyle(2 * s, 0xc08a4e, 0.6); // ridge highlight
     g.beginPath();
     g.moveTo(ax * s, (ay - 2) * s);
     g.lineTo(bx * s, (by - 2) * s);
     g.strokePath();
-    // furrow shadow
-    g.lineStyle(2 * s, 0x6f3f20, 0.55);
+    g.lineStyle(2 * s, 0x5b3415, 0.5); // furrow shadow
     g.beginPath();
     g.moveTo(ax * s, ay * s);
     g.lineTo(bx * s, by * s);
     g.strokePath();
   }
+}
+
+function soilTile(g: Phaser.GameObjects.Graphics, s: number) {
+  diamond(g, s, 0x9b5e34, 1, { c: 0x6f3f20, a: 0.5, w: 2 });
+  soilFurrows(g, s);
+}
+
+/** Bake a square source image cropped to an isometric diamond, + optional overlay. */
+function texturedDiamond(
+  scene: Phaser.Scene,
+  key: string,
+  srcKey: string,
+  s: number,
+  overlay?: (g: Phaser.GameObjects.Graphics) => void
+) {
+  const w = W * s;
+  const h = H * s;
+  const rt = scene.add.renderTexture(0, 0, w, h).setVisible(false);
+  const img = scene.make.image({ x: 0, y: 0, key: srcKey, add: false }).setOrigin(0, 0);
+  img.setDisplaySize(w, h);
+  rt.draw(img);
+  // Erase the four corners outside the diamond.
+  const er = scene.make.graphics({ x: 0, y: 0 }, false);
+  er.fillStyle(0xffffff, 1);
+  er.fillTriangle(0, 0, w / 2, 0, 0, h / 2);
+  er.fillTriangle(w / 2, 0, w, 0, w, h / 2);
+  er.fillTriangle(w, h / 2, w, h, w / 2, h);
+  er.fillTriangle(0, h / 2, 0, h, w / 2, h);
+  rt.erase(er);
+  if (overlay) {
+    const og = scene.make.graphics({ x: 0, y: 0 }, false);
+    overlay(og);
+    rt.draw(og);
+    og.destroy();
+  }
+  // subtle edge for definition
+  const edge = scene.make.graphics({ x: 0, y: 0 }, false);
+  edge.lineStyle(2 * s, 0x5b3415, 0.4);
+  edge.beginPath();
+  edge.moveTo(w / 2, 0);
+  edge.lineTo(w, h / 2);
+  edge.lineTo(w / 2, h);
+  edge.lineTo(0, h / 2);
+  edge.closePath();
+  edge.strokePath();
+  rt.draw(edge);
+  rt.saveTexture(key);
+  img.destroy();
+  er.destroy();
+  edge.destroy();
 }
 
 export const DECOR_TEX = { tw: 68, th: 74 };

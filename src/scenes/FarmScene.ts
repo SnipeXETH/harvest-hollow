@@ -68,7 +68,11 @@ export class FarmScene extends BaseScene {
   }
 
   create() {
-    this.cameras.main.setBackgroundColor("#72ad3e");
+    this.cameras.main.setBackgroundColor("#6f9e3f");
+    // Real grass texture as the world floor (camera pans over it).
+    if (this.textures.exists("grass-src")) {
+      this.add.tileSprite(0, 220, 6800, 4200, "grass-src").setDepth(-1000).setTileScale(0.5);
+    }
     this.fences = this.add.graphics();
 
     this.buildWorld();
@@ -138,18 +142,17 @@ export class FarmScene extends BaseScene {
     this.ground.forEach((o) => o.destroy());
     this.ground = [];
 
-    const b = GameState.activeBounds();
-    const M = 2; // grass margin around the active area
-    for (let row = b.minR - M; row <= b.maxR + M; row++) {
-      for (let col = b.minC - M; col <= b.maxC + M; col++) {
-        const p = this.tilePos(col, row);
-        const tex = (col + row) % 2 === 0 ? "tile-grass" : "tile-grass-2";
-        const img = this.add
-          .image(p.x, p.y, tex)
-          .setOrigin(0.5, 0)
-          .setScale(TILE_SCALE)
-          .setDepth(col + row);
-        this.ground.push(img);
+    // Per-tile grass diamonds only when there's no textured grass ground.
+    if (!this.textures.exists("grass-src")) {
+      const b = GameState.activeBounds();
+      const M = 2; // grass margin around the active area
+      for (let row = b.minR - M; row <= b.maxR + M; row++) {
+        for (let col = b.minC - M; col <= b.maxC + M; col++) {
+          const p = this.tilePos(col, row);
+          const tex = (col + row) % 2 === 0 ? "tile-grass" : "tile-grass-2";
+          const img = this.add.image(p.x, p.y, tex).setOrigin(0.5, 0).setScale(TILE_SCALE).setDepth(col + row);
+          this.ground.push(img);
+        }
       }
     }
 

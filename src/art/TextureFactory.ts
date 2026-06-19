@@ -44,13 +44,9 @@ export function generateTextures(scene: Phaser.Scene): void {
     g.destroy();
   };
 
-  bakeTile("tile-grass", (g) => diamond(g, s, 0x7ec24a));
-  bakeTile("tile-grass-2", (g) => diamond(g, s, 0x86c953));
-  bakeTile("tile-soil", (g) => {
-    diamond(g, s, 0x9b5e34, 1, { c: 0x6f3f20, a: 0.55, w: 2 });
-    g.fillStyle(0xa86a3c, 0.5);
-    g.fillRect((W / 2 - 1) * s, H * 0.18 * s, 2 * s, H * 0.64 * s);
-  });
+  bakeTile("tile-grass", (g) => grassTile(g, s, 0x7ec24a, 0));
+  bakeTile("tile-grass-2", (g) => grassTile(g, s, 0x84c84e, 1));
+  bakeTile("tile-soil", (g) => soilTile(g, s));
   // Buyable plot highlight tile.
   bakeTile("tile-buy", (g) => diamond(g, s, 0xffe27a, 0.28, { c: 0xfff0b8, a: 0.9, w: 2 }));
   // Target highlight (valid action / tap feedback).
@@ -76,32 +72,143 @@ export function generateTextures(scene: Phaser.Scene): void {
   }
 }
 
+type Arch = "leafy" | "grain" | "fruit";
+const CROP_ARCH: Record<string, Arch> = {
+  carrot: "leafy", potato: "leafy", wheat: "grain", corn: "grain",
+  strawberry: "fruit", tomato: "fruit", melon: "fruit", pumpkin: "fruit", grapes: "fruit",
+};
+
+// Plant base points filling the diamond (design px, relative to diamond centre).
+function fieldPoints(): [number, number][] {
+  const pts: [number, number][] = [];
+  for (let gy = -2; gy <= 2; gy++) {
+    for (let gx = -3; gx <= 3; gx++) {
+      const ox = gx * 16 + (gy & 1 ? 8 : 0);
+      const oy = gy * 10;
+      if (Math.abs(ox) / 52 + Math.abs(oy) / 24 <= 0.96) pts.push([ox, oy]);
+    }
+  }
+  return pts.sort((a, b) => a[1] - b[1]); // back (higher up) first
+}
+
+function drawPlant(g: Phaser.GameObjects.Graphics, s: number, x: number, y: number, color: number, arch: Arch, ripe: boolean) {
+  const X = (v: number) => v * s;
+  const leafDk = 0x3f8a34;
+  const leafLt = 0x6abf45;
+
+  if (arch === "grain") {
+    for (const dx of [-3, 0, 3]) {
+      g.lineStyle(2.2 * s, ripe ? 0xbf952f : 0x5a9a38, 1);
+      g.beginPath();
+      g.moveTo(X(x + dx), X(y));
+      g.lineTo(X(x + dx * 1.5), X(y - 16));
+      g.strokePath();
+      if (ripe) {
+        g.fillStyle(color, 1);
+        g.fillEllipse(X(x + dx * 1.5), X(y - 17), 4.5 * s, 8 * s);
+      }
+    }
+    return;
+  }
+
+  // leafy bush base
+  g.fillStyle(leafDk, 1);
+  g.fillEllipse(X(x - 4), X(y - 6), 8 * s, 14 * s);
+  g.fillEllipse(X(x + 4), X(y - 6), 8 * s, 14 * s);
+  g.fillStyle(leafLt, 1);
+  g.fillEllipse(X(x), X(y - 8), 8 * s, 16 * s);
+  if (!ripe) return;
+
+  if (arch === "fruit") {
+    g.fillStyle(color, 1);
+    g.fillCircle(X(x), X(y - 4), 5 * s);
+    g.fillStyle(0xffffff, 0.45);
+    g.fillCircle(X(x - 1.6), X(y - 5.6), 1.6 * s);
+  } else {
+    // leafy-root: a peek of the crop colour at the base
+    g.fillStyle(color, 1);
+    g.fillEllipse(X(x), X(y - 1), 7 * s, 6 * s);
+  }
+}
+
+function drawSprout(g: Phaser.GameObjects.Graphics, s: number, x: number, y: number) {
+  const X = (v: number) => v * s;
+  g.lineStyle(2 * s, 0x69bf42, 1);
+  g.beginPath();
+  g.moveTo(X(x), X(y));
+  g.lineTo(X(x - 3), X(y - 6));
+  g.moveTo(X(x), X(y));
+  g.lineTo(X(x + 3), X(y - 6));
+  g.strokePath();
+}
+
 function bakeCrops(scene: Phaser.Scene, s: number) {
   const tw = CROP_TEX.tw;
   const th = CROP_TEX.th;
-  const ce = 28; // per-icon size (design px)
-  const cxC = (tw / 2) * s; // diamond centre x
-  const cyC = (CTOP + H / 2) * s; // diamond centre y
-  // Base points (design px, relative to diamond centre) filling the diamond.
-  const pts: [number, number][] = [
-    [-26, -1], [-9, -6], [9, -6], [26, -1],
-    [-17, 7], [0, 2], [17, 7],
-    [0, 15],
-  ];
-  const order = [...pts].sort((a, b) => a[1] - b[1]); // back (higher) first
+  const cx = tw / 2;
+  const cy = CTOP + H / 2;
+  const pts = fieldPoints();
 
-  const cluster = (key: string, emoji: string) => {
-    const rt = scene.add.renderTexture(0, 0, tw * s, th * s).setVisible(false);
-    for (const [dx, dy] of order) {
-      const t = scene.add.text(0, 0, emoji, { fontSize: `${ce * s}px` }).setOrigin(0.5, 1);
-      rt.draw(t, cxC + dx * s, cyC + dy * s);
-      t.destroy();
-    }
-    rt.saveTexture(key);
+  const bake = (key: string, draw: (g: Phaser.GameObjects.Graphics) => void) => {
+    const g = scene.add.graphics();
+    draw(g);
+    g.generateTexture(key, tw * s, th * s);
+    g.destroy();
   };
 
-  for (const c of CROPS) cluster(`crop-${c.id}`, c.emoji);
-  cluster("sprout-cluster", "🌱");
+  for (const c of CROPS) {
+    const arch = CROP_ARCH[c.id] || "fruit";
+    bake(`crop-${c.id}`, (g) => pts.forEach(([ox, oy]) => drawPlant(g, s, cx + ox, cy + oy, c.color, arch, true)));
+    bake(`crop-${c.id}-leaf`, (g) => pts.forEach(([ox, oy]) => drawPlant(g, s, cx + ox, cy + oy, c.color, arch, false)));
+  }
+  bake("sprout-cluster", (g) => pts.forEach(([ox, oy]) => drawSprout(g, s, cx + ox, cy + oy)));
+}
+
+function grassTile(g: Phaser.GameObjects.Graphics, s: number, base: number, variant: number) {
+  diamond(g, s, base);
+  // soft upper sheen
+  g.fillStyle(0xffffff, 0.07);
+  g.beginPath();
+  g.moveTo((W / 2) * s, 0);
+  g.lineTo(W * s, (H / 2) * s);
+  g.lineTo(0, (H / 2) * s);
+  g.closePath();
+  g.fillPath();
+  // scattered grass tufts
+  const tufts: [number, number][] =
+    variant === 0
+      ? [[34, 22], [62, 30], [80, 22], [22, 32], [54, 40], [88, 38], [44, 16], [70, 44]]
+      : [[28, 26], [50, 18], [74, 28], [40, 38], [66, 40], [86, 30], [20, 24], [58, 46]];
+  for (const [px, py] of tufts) {
+    g.lineStyle(1.5 * s, 0x5fa838, 0.9);
+    for (const dx of [-2.4, 0, 2.4]) {
+      g.beginPath();
+      g.moveTo(px * s, py * s);
+      g.lineTo((px + dx) * s, (py - 5) * s);
+      g.strokePath();
+    }
+  }
+}
+
+function soilTile(g: Phaser.GameObjects.Graphics, s: number) {
+  diamond(g, s, 0x9b5e34, 1, { c: 0x6f3f20, a: 0.5, w: 2 });
+  // plowed rows: 4 parallel furrows fully inside the diamond
+  for (const t of [0.2, 0.4, 0.6, 0.8]) {
+    const ax = 55 * t, ay = 27.5 * (1 - t);
+    const bx = 55 + 55 * t, by = 55 - 27.5 * t;
+    // ridge highlight just above the furrow
+    g.lineStyle(2 * s, 0xb37a45, 0.7);
+    g.beginPath();
+    g.moveTo(ax * s, (ay - 2) * s);
+    g.lineTo(bx * s, (by - 2) * s);
+    g.strokePath();
+    // furrow shadow
+    g.lineStyle(2 * s, 0x6f3f20, 0.55);
+    g.beginPath();
+    g.moveTo(ax * s, ay * s);
+    g.lineTo(bx * s, by * s);
+    g.strokePath();
+  }
 }
 
 export const DECOR_TEX = { tw: 68, th: 74 };

@@ -756,7 +756,7 @@ export class FarmScene extends BaseScene {
       const crop = CROP_BY_ID[plot.cropId];
       if (!crop) continue;
       const ratio = GameState.growthRatio(plot);
-      const wantTex = ratio < 0.3 ? "sprout-cluster" : `crop-${crop.id}`;
+      const wantTex = ratio < 0.25 ? "sprout-cluster" : ratio < 0.8 ? `crop-${crop.id}-leaf` : `crop-${crop.id}`;
       if (v.crop.texture.key !== wantTex) v.crop.setTexture(wantTex);
       v.crop.setVisible(true);
 

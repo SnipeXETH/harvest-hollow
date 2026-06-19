@@ -168,12 +168,19 @@ export class FarmScene extends BaseScene {
     const cont = this.add.container(c.x, c.y).setDepth(midCol + midRow + 50);
 
     const g = this.add.graphics();
-    g.fillStyle(0x000000, 0.18);
-    g.fillRoundedRect(-58, -22 + 3, 116, 40, 12);
-    g.fillStyle(0xffffff, 0.96);
-    g.fillRoundedRect(-58, -22, 116, 40, 12);
-    const t1 = this.tx(0, -12, "🚜 Buy land", { fontFamily: "Fredoka", fontSize: "15px", fontStyle: "600", color: "#4a3826" }).setOrigin(0.5);
-    const t2 = this.tx(0, 6, `🪙 ${GameState.plotCost().toLocaleString()}`, { fontFamily: "Fredoka", fontSize: "15px", fontStyle: "700", color: "#caa12a" }).setOrigin(0.5);
+    // wooden signpost
+    g.fillStyle(0x5e3a1d, 1);
+    g.fillRect(-3, 14, 6, 26); // post
+    g.fillStyle(0x000000, 0.2);
+    g.fillRoundedRect(-62, -24 + 4, 124, 46, 11);
+    g.fillStyle(0x8a5830, 1); // board
+    g.fillRoundedRect(-62, -24, 124, 46, 11);
+    g.lineStyle(3, 0x432913, 1);
+    g.strokeRoundedRect(-62, -24, 124, 46, 11);
+    g.lineStyle(2, 0xf2ab1e, 0.85); // gold inner trim
+    g.strokeRoundedRect(-56, -19, 112, 36, 8);
+    const t1 = this.tx(0, -12, "🚜 Buy Land", { fontFamily: "Fredoka", fontSize: "15px", fontStyle: "700", color: "#fff3d6" }).setOrigin(0.5);
+    const t2 = this.tx(0, 7, `🪙 ${GameState.plotCost().toLocaleString()}`, { fontFamily: "Fredoka", fontSize: "16px", fontStyle: "700", color: "#ffe48c" }).setOrigin(0.5);
     cont.add([g, t1, t2]);
     cont.setScale(TILE_SCALE * 1.4);
     this.ground.push(cont);
